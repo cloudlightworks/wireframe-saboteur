@@ -1,0 +1,145 @@
+extends CanvasLayer
+class_name DiscardOverlay
+
+# Shown when a player's hand exceeds HAND_LIMIT. Displays their over-limit hand with
+# cards flashing red; clicking a card sends it to the bottom of the deck. Closes when
+# the hand is back to the limit. Matches the game's rounded / shadow / red-over-blue scheme.
+
+signal discard_complete
+
+const COL_INK := Color("#141414")
+const COL_RED := Color("#E32636")
+const COL_BLUE := Color("#4169E1")
+
+var game_state: GameState
+var _player: int
+var _card_row: HBoxContainer
+var _count_label: Label
+var _flash_t := 0.0
+
+func _ready() -> void:
+	set_process(false)
+
+func open(gs: GameState, player: int) -> void:
+	game_state = gs
+	_player = player
+	visible = true
+	_build()
+	set_process(true)
+
+func _build() -> void:
+	for c in get_children():
+		c.queue_free()
+
+	# dim background
+	var bg := ColorRect.new()
+	bg.color = Color(0.06, 0.06, 0.06, 0.9)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(bg)
+
+	# centered panel (rounded, shadow)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color.WHITE
+	sb.set_corner_radius_all(14)
+	sb.shadow_color = Color(0, 0, 0, 0.5)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0, 6)
+	sb.content_margin_left = 26
+	sb.content_margin_right = 26
+	sb.content_margin_top = 22
+	sb.content_margin_bottom = 24
+	panel.add_theme_stylebox_override("panel", sb)
+	center.add_child(panel)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	panel.add_child(col)
+
+	# title
+	var title := Label.new()
+	title.text = "Hand Over the Limit"
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", COL_INK)
+	col.add_child(title)
+
+	# red-over-blue rule
+	var rule := VBoxContainer.new()
+	rule.add_theme_constant_override("separation", 4)
+	var rb := ColorRect.new(); rb.color = COL_RED; rb.custom_minimum_size = Vector2(0, 2)
+	var bb := ColorRect.new(); bb.color = COL_BLUE; bb.custom_minimum_size = Vector2(0, 2)
+	rule.add_child(rb); rule.add_child(bb)
+	col.add_child(rule)
+
+	# instruction + count
+	_count_label = Label.new()
+	_count_label.add_theme_font_size_override("font_size", 15)
+	_count_label.add_theme_color_override("font_color", Color("#33302b"))
+	col.add_child(_count_label)
+
+	# the hand, as clickable card fronts
+	_card_row = HBoxContainer.new()
+	_card_row.add_theme_constant_override("separation", 8)
+	col.add_child(_card_row)
+
+	_refresh_cards()
+
+func _refresh_cards() -> void:
+	for c in _card_row.get_children():
+		c.queue_free()
+
+	var hand: Array = game_state.hands[_player]
+	var over := hand.size() - GameState.HAND_LIMIT
+	_count_label.text = "Discard %d card%s to the bottom of the deck." % [over, "" if over == 1 else "s"]
+
+	for card in hand:
+		# Each card = a bordered holder (flashing red) wrapping a real CardView,
+		# so the art matches the hand exactly.
+		var holder := PanelContainer.new()
+		var cb := StyleBoxFlat.new()
+		cb.bg_color = Color.WHITE
+		cb.set_corner_radius_all(8)
+		cb.set_border_width_all(2)
+		cb.border_color = COL_RED
+		cb.content_margin_left = 4
+		cb.content_margin_right = 4
+		cb.content_margin_top = 4
+		cb.content_margin_bottom = 4
+		holder.add_theme_stylebox_override("panel", cb)
+		holder.set_meta("cardbox", cb)
+
+		var cv := CardView.new()
+		holder.add_child(cv)
+		cv.setup(card)
+		cv.mouse_filter = Control.MOUSE_FILTER_IGNORE   # holder handles the click
+
+		holder.mouse_filter = Control.MOUSE_FILTER_STOP
+		holder.gui_input.connect(_on_card_input.bind(card))
+		_card_row.add_child(holder)
+
+func _on_card_input(event: InputEvent, card) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		game_state.discard_to_deck(_player, card)
+		if game_state.is_hand_over_limit(_player):
+			_refresh_cards()          # still over — keep going
+		else:
+			_close()
+
+func _close() -> void:
+	set_process(false)
+	visible = false
+	discard_complete.emit()
+	queue_free()
+
+func _process(delta: float) -> void:
+	# flash the red card borders
+	_flash_t += delta
+	var a := 0.4 + 0.6 * (0.5 + 0.5 * sin(_flash_t * 6.0))
+	for holder in _card_row.get_children():
+		if holder.has_meta("cardbox"):
+			var cb: StyleBoxFlat = holder.get_meta("cardbox")
+			cb.border_color = Color(COL_RED.r, COL_RED.g, COL_RED.b, a)

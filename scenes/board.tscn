@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://bvqcy137tfwv5"]
+
+[ext_resource type="Script" uid="uid://byk777ro2as8s" path="res://scenes/board.gd" id="1_tx6nw"]
+
+[node name="Board" type="Node2D" unique_id=694211966]
+script = ExtResource("1_tx6nw")
+
+[node name="TopHalf" type="Sprite2D" parent="." unique_id=1607852790]
+position = Vector2(-696, -632)
+centered = false
+
+[node name="BottomHalf" type="Sprite2D" parent="." unique_id=1540798882]
+position = Vector2(-696, 0)
+centered = false
+flip_v = true

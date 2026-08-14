@@ -1,0 +1,80 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/tutorial_controller.gd" id="1_controller"]
+[ext_resource type="PackedScene" path="res://scenes/board.tscn" id="2_board"]
+[ext_resource type="Script" path="res://scripts/tutorial_overlay.gd" id="3_overlay"]
+
+[node name="Tutorial" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_controller")
+
+[node name="Paper" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.956863, 0.94902, 0.92549, 1)
+
+[node name="BoardArea" type="Control" parent="."]
+clip_contents = true
+layout_mode = 1
+anchors_preset = 12
+anchor_right = 0.72
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="BoardBackdrop" type="ColorRect" parent="BoardArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.901961, 0.890196, 0.854902, 1)
+
+[node name="World" type="Node2D" parent="BoardArea"]
+
+[node name="Board" parent="BoardArea/World" instance=ExtResource("2_board")]
+
+[node name="HighlightLayer" type="Node2D" parent="BoardArea/World"]
+z_index = 10
+
+[node name="PieceLayer" type="Node2D" parent="BoardArea/World"]
+z_index = 20
+
+[node name="HandLayer" type="Control" parent="BoardArea"]
+visible = false
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -174.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 1
+z_index = 100
+
+[node name="Overlay" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 13
+anchor_left = 0.72
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 0
+grow_vertical = 2
+script = ExtResource("3_overlay")

@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cfpx3xga6d7yu"]
+
+[ext_resource type="Script" uid="uid://bspo2dlfh6brw" path="res://scenes/net_test.gd" id="1_x15u5"]
+
+[node name="NetTest" type="Node" unique_id=944799597]
+script = ExtResource("1_x15u5")

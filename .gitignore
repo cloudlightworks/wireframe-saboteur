@@ -1,0 +1,10 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Generated LLM upload staging
+llm_context/discrete/
+llm_context/upload_flat/
+.onws-out/
+.godot/
+llm_context/
