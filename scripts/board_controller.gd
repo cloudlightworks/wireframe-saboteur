@@ -1334,6 +1334,18 @@ func _input(event: InputEvent) -> void:
 		if event.keycode == KEY_F6 and not in_croce:
 			_cpu_toggle()
 			return
+		if event.keycode == KEY_G and not in_croce:
+			_debug_give_cpu_ityd()
+			return
+		if event.keycode == KEY_O and not in_croce:
+			_debug_give_cpu_card(Card.Category.MAJOR_POWER, Card.MajorEffect.ONE_MAN_ARMY)
+			return
+		if event.keycode == KEY_J and not in_croce:
+			_debug_give_cpu_card(Card.Category.MAJOR_POWER, Card.MajorEffect.JUST_THIS_ONCE)
+			return
+		if event.keycode == KEY_P and not in_croce:
+			_debug_dump_pieces()
+			return
 	if in_croce:
 		if pass_screen.visible:
 			if event is InputEventMouseButton and event.pressed:
@@ -2589,6 +2601,9 @@ func _build_turn_ui() -> void:
 	_update_pause_button_style()
 
 	hand_panel = HandPanel.new()
+	if cpu != null:
+		# Keep the human's hand on screen through the CPU's turn.
+		hand_panel.forced_side = Piece.Owner.BLUE if cpu.side == Piece.Owner.RED else Piece.Owner.RED
 	add_child(hand_panel)
 	hand_panel.setup(game_state)
 	hand_panel.deployment_applied.connect(_on_deployment_applied)
@@ -3031,8 +3046,12 @@ func _cpu_act() -> void:
 	_cpu_manage_hand()
 	_cpu_try_deploy()
 
+	cpu.note_hand(game_state.hands[cpu.side])
 	var choice := cpu.choose_move(game_state)
 	if choice.is_empty():
+		if cpu.verbose:
+			print("CPU: no legal moves (moves_remaining=%d, moved=%s) — ending turn"
+				% [game_state.moves_remaining, game_state.pieces_moved_this_turn])
 		_cpu_end_turn()
 		return
 
@@ -3084,9 +3103,20 @@ func _cpu_manage_hand() -> void:
 		hand_panel.refresh()
 
 func _cpu_try_deploy() -> void:
+	var hand: Array = game_state.hands[cpu.side]
+	var names := []
+	for c in hand:
+		names.append(c.name if "name" in c else str(c.category))
+	print("CPU deploy: hand=%d %s" % [hand.size(), names])
 	var attempts := 0
 	while attempts < 3:
 		attempts += 1
+		if _cpu_try_ityd():
+			continue
+		if _cpu_try_oma():
+			continue
+		if _cpu_try_jto():
+			continue
 		var plan: Dictionary = cpu.choose_deployment(game_state, game_state.hands[cpu.side])
 		if plan.is_empty():
 			return
@@ -3097,6 +3127,7 @@ func _cpu_try_deploy() -> void:
 				if not ok:
 					return
 				SfxManager.play("saboteur_transform")
+				hand_panel.reveal_opponent_card(plan["type_card"], "CPU declared a Saboteur.")
 				_refresh_all_piece_views()
 				if captured_tray:
 					captured_tray.refresh()
@@ -3106,6 +3137,7 @@ func _cpu_try_deploy() -> void:
 					return
 				var c: Card = plan["cards"][0]
 				SfxManager.play("play_major_card" if c.category == Card.Category.MAJOR_POWER else "play_minor_card")
+				hand_panel.reveal_opponent_card(c, "CPU played a card.")
 			_:
 				return
 		if hand_panel:
@@ -3128,3 +3160,244 @@ func _debug_validate_openings() -> void:
 				print("  OK   %s_%s" % [name, side_name])
 			else:
 				print("  FAIL %s_%s — %s" % [name, side_name, fault])
+
+# DEBUG: hand the CPU a Get-a-Move-On for the first type it has a movable piece
+# of, so the GaMO bonus-move path can be reproduced on demand. Throwaway.
+func _debug_give_cpu_gamo() -> void:
+	if cpu == null:
+		print("DEBUG: no CPU active")
+		return
+	var gamo: Card = null
+	for c in CardDatabase.build_full_deck():
+		if c.category == Card.Category.MINOR_POWER and c.minor_effect == Card.MinorEffect.GET_MOVE_ON:
+			gamo = c
+			# Match the card's type to a piece the CPU can actually move.
+			for piece in game_state.pieces.values():
+				if piece.owner == cpu.side and piece.type == c.effect_piece_type:
+					break
+			break
+	if gamo == null:
+		print("DEBUG: no GaMO card in deck")
+		return
+	gamo.uid = 9500
+	game_state.hands[cpu.side].append(gamo)
+	print("DEBUG: gave CPU a GaMO-%s (hand now %d)" % [
+		CardView._letter(gamo.effect_piece_type), game_state.hands[cpu.side].size()])
+	if hand_panel:
+		hand_panel.refresh()
+
+# DEBUG: give the CPU an ITYD-A. Only fires the effect if the CPU has an A in
+# its captured tray to redeploy. Throwaway.
+func _debug_give_cpu_ityd() -> void:
+	if cpu == null:
+		print("DEBUG: no CPU active")
+		return
+	var ityd: Card = null
+	for c in CardDatabase.build_full_deck():
+		if c.category == Card.Category.MINOR_POWER \
+		and c.minor_effect == Card.MinorEffect.I_THOUGHT_YOU_WERE_DEAD \
+		and c.effect_piece_type == Piece.Type.A:
+			ityd = c
+			break
+	if ityd == null:
+		print("DEBUG: no ITYD-A in deck")
+		return
+	ityd.uid = 9600
+	game_state.hands[cpu.side].append(ityd)
+	var tray: int = game_state.captured_pieces[cpu.side].size()
+	print("DEBUG: gave CPU an ITYD-A (hand %d, %d in tray)" % [
+		game_state.hands[cpu.side].size(), tray])
+	if hand_panel:
+		hand_panel.refresh()
+
+# Assembles the legal ITYD cells and hands them to the CPU to choose from,
+# then applies the pick through the same headless applier the player uses.
+# Returns true if an ITYD was played.
+func _cpu_try_ityd() -> bool:
+	if cpu == null:
+		return false
+	var captured: Array = game_state.captured_pieces[cpu.side]
+	if captured.is_empty():
+		return false
+	var hand: Array = game_state.hands[cpu.side]
+
+	# Which captured types could an ITYD in hand actually redeploy?
+	var has_ityd := false
+	for c in hand:
+		if c.category == Card.Category.MINOR_POWER and c.minor_effect == Card.MinorEffect.I_THOUGHT_YOU_WERE_DEAD:
+			has_ityd = true
+			break
+	if not has_ityd:
+		return false
+
+	# Build the set of legal single-cell placements. For a 1x1 (A) this is the
+	# cell itself; multi-cell pieces need their footprint checked, but ITYD in
+	# this build redeploys the piece at its own footprint anchored at the cell.
+	var legal_cells: Array = []
+	for y in range(16):
+		for x in range(18):
+			var cell := Vector2i(x, y)
+			if not _in_ityd_zone(cell, cpu.side):
+				continue
+			if _cell_blocked(cell):
+				continue
+			legal_cells.append(cell)
+	if legal_cells.is_empty():
+		return false
+
+	var anchor := _moved_piece.cells[0] if (_moved_piece != null and not _moved_piece.cells.is_empty()) else Vector2i(-1, -1)
+	var plan: Dictionary = cpu.choose_ityd(game_state, hand, captured, legal_cells, anchor)
+	if plan.is_empty():
+		return false
+
+	# Resolve the chosen piece to know its footprint at the target cell.
+	var piece: Piece = null
+	for cap in captured:
+		if cap.uid == plan["piece_uid"]:
+			piece = cap
+			break
+	if piece == null:
+		return false
+
+	var cells: Array[Vector2i] = CroceOpenings.cells_for(piece.designation, plan["cell"].x, plan["cell"].y,
+		"V" if piece.orientation == Piece.PieceOrientation.VERTICAL else "H")
+	# Every footprint cell must also be legal, not just the anchor.
+	for cell in cells:
+		if not _in_ityd_zone(cell, cpu.side) or _cell_blocked(cell):
+			return false
+
+	var ok := game_state.apply_i_thought_you_were_dead(cpu.side, plan["piece_uid"], cells, piece.orientation)
+	if not ok:
+		return false
+
+	# Discard the ITYD card.
+	for c in hand:
+		if c.category == Card.Category.MINOR_POWER and c.minor_effect == Card.MinorEffect.I_THOUGHT_YOU_WERE_DEAD:
+			game_state.discard_card(cpu.side, c)
+			break
+
+	# Build the view for the returned piece and announce it.
+	var view := PieceView.new()
+	piece_layer.add_child(view)
+	view.setup(piece)
+	SfxManager.play("play_minor_card")
+	hand_panel.reveal_opponent_card(plan["card"], "CPU redeployed a piece.")
+	if hand_panel:
+		hand_panel.refresh()
+	if captured_tray:
+		captured_tray.refresh()
+	print("CPU ITYD: %s to %s" % [piece.designation, plan["cell"]])
+	return true
+
+# True if any piece already occupies this cell.
+func _cell_blocked(cell: Vector2i) -> bool:
+	for piece in game_state.pieces.values():
+		if piece.cells.has(cell):
+			return true
+	return false
+
+func _cpu_try_oma() -> bool:
+	if cpu == null:
+		return false
+	var plan: Dictionary = cpu.choose_one_man_army(game_state, game_state.hands[cpu.side])
+	if plan.is_empty():
+		return false
+	var ok := game_state.apply_one_man_army(cpu.side, plan["type_card"], plan["chosen_type"])
+	if not ok:
+		return false
+	SfxManager.play("play_major_card")
+	hand_panel.reveal_opponent_card(plan["type_card"], "CPU declared One Man Army.")
+	if hand_panel:
+		hand_panel.refresh()
+	print("CPU OMA: type %d" % plan["chosen_type"])
+	return true
+
+func _cpu_try_jto() -> bool:
+	if cpu == null:
+		return false
+	if game_state.objective_has_moved.get(cpu.side, false):
+		return false
+	var obj: Piece = null
+	for p in game_state.pieces.values():
+		if p.type == Piece.Type.OBJECTIVE and p.owner == cpu.side:
+			obj = p
+			break
+	if obj == null or obj.cells.is_empty():
+		return false
+
+	# Enumerate legal Objective destinations: orthogonal, 1-3 cells, clear path,
+	# own half, empty. Mirrors _is_legal_objective_move without duplicating it.
+	var from: Vector2i = obj.cells[0]
+	var legal_dests: Array = []
+	for dir: Vector2i in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]:
+		for dist in range(1, 4):
+			var dest: Vector2i = from + dir * dist
+			if game_state._is_legal_objective_move(from, dest, cpu.side):
+				legal_dests.append(dest)
+
+	var plan: Dictionary = cpu.choose_just_this_once(game_state, game_state.hands[cpu.side], legal_dests)
+	if plan.is_empty():
+		return false
+	var ok := game_state.apply_just_this_once(cpu.side, plan["dest"])
+	if not ok:
+		return false
+	# Discard the card (apply_just_this_once doesn't consume it).
+	for c in game_state.hands[cpu.side]:
+		if c.category == Card.Category.MAJOR_POWER and c.major_effect == Card.MajorEffect.JUST_THIS_ONCE:
+			game_state.discard_card(cpu.side, c)
+			break
+	_refresh_all_piece_views()
+	SfxManager.play("jto_objmove")
+	hand_panel.reveal_opponent_card(plan["card"], "CPU moved its Objective.")
+	if hand_panel:
+		hand_panel.refresh()
+	print("CPU JTO: objective to %s" % plan["dest"])
+	return true
+
+# DEBUG: drop a card matching (category, effect) into the CPU's hand. Throwaway.
+func _debug_give_cpu_card(category: int, effect: int) -> void:
+	if cpu == null:
+		print("DEBUG: no CPU active")
+		return
+	var found: Card = null
+	for c in CardDatabase.build_full_deck():
+		if c.category != category:
+			continue
+		if category == Card.Category.MAJOR_POWER and c.major_effect == effect:
+			found = c
+			break
+		if category == Card.Category.MINOR_POWER and c.minor_effect == effect:
+			found = c
+			break
+	if found == null:
+		print("DEBUG: no matching card in deck")
+		return
+	found.uid = 9700
+	game_state.hands[cpu.side].append(found)
+	print("DEBUG: gave CPU a card (hand now %d)" % game_state.hands[cpu.side].size())
+	if hand_panel:
+		hand_panel.refresh()
+
+# DEBUG: print every Piece in state and every PieceView on screen, so orphaned
+# views (rendered but not in game_state.pieces) show up immediately.
+func _debug_dump_pieces() -> void:
+	print("--- PIECES IN STATE ---")
+	var state_uids := {}
+	for p in game_state.pieces.values():
+		state_uids[p.uid] = true
+		var sab := " SABOTEUR" if p.has_status("saboteur") else ""
+		print("  uid=%d %s owner=%d cells=%s%s" % [p.uid, p.designation, p.owner, p.cells, sab])
+	print("--- PIECE VIEWS ON SCREEN ---")
+	var view_uids := {}
+	for child in piece_layer.get_children():
+		if child is PieceView and child.piece != null:
+			view_uids[child.piece.uid] = true
+			var orphan := "" if state_uids.has(child.piece.uid) else "   <<< ORPHAN: not in state"
+			print("  view uid=%d %s cells=%s%s" % [child.piece.uid, child.piece.designation, child.piece.cells, orphan])
+	print("--- MISSING VIEWS ---")
+	for uid in state_uids:
+		if not view_uids.has(uid):
+			print("  uid=%d in state but NO view" % uid)
+	print("--- captured: blue=%d red=%d ---" % [
+		game_state.captured_pieces[Piece.Owner.BLUE].size(),
+		game_state.captured_pieces[Piece.Owner.RED].size()])

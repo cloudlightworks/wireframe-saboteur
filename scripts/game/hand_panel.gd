@@ -2,6 +2,10 @@ extends CanvasLayer
 class_name HandPanel
 signal deployment_applied
 
+# When >= 0, always show this side's hand regardless of whose turn it is.
+# Set by board_controller in CPU mode so the CPU's cards stay hidden.
+var forced_side: int = -1
+
 const SCREEN_W := 1280.0
 const SCREEN_H := 720.0
 const HAND_LIMIT := 9
@@ -767,6 +771,8 @@ func hide_deploy_card() -> void:
 func _display_side() -> Piece.Owner:
 	if NetworkManager.is_networked():
 		return NetworkManager.my_side()
+	if forced_side >= 0:
+		return forced_side
 	return game_state.current_player
 	
 
