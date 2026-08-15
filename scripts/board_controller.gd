@@ -1164,9 +1164,10 @@ func _build_card_lookup() -> void:
 		_card_lookup[c.uid] = c
 
 func _build_opponent_hand_counter(layer: CanvasLayer) -> void:
-	if not NetworkManager.is_networked():
+	if not NetworkManager.is_networked() and cpu == null:
 		return
-	var back_tex: Texture2D = TextureManager.card_back(1 - NetworkManager.my_side())
+	var hidden_side: int = cpu.side if cpu != null else (1 - NetworkManager.my_side())
+	var back_tex: Texture2D = TextureManager.card_back(hidden_side)
 	if back_tex == null:
 		return
 	# Anchored at End Turn's own top-left (12, 76) so every child below is
@@ -1213,7 +1214,10 @@ func _build_opponent_hand_counter(layer: CanvasLayer) -> void:
 func _update_opponent_hand_counter() -> void:
 	if opponent_count_label == null:
 		return
-	var opponent_is_blue := NetworkManager.my_side() != Piece.Owner.BLUE
+	if cpu != null:
+		NetworkManager.opponent_hand_count = game_state.hands[cpu.side].size()
+	var opponent_is_blue: bool = (cpu.side == Piece.Owner.BLUE) if cpu != null \
+		else (NetworkManager.my_side() != Piece.Owner.BLUE)
 	var col: Color = RuleSettings.COLOR_HEX[
 		RuleSettings.side_one_color if opponent_is_blue else RuleSettings.side_two_color]
 	opponent_count_label.text = "×%d" % NetworkManager.opponent_hand_count
@@ -2288,6 +2292,8 @@ func _after_move() -> void:
 	_start_turn_timer()
 	if hand_panel:
 		hand_panel.refresh()
+	if cpu != null:
+		_update_opponent_hand_counter()
 	if _moved_piece and game_state.piece_has_gamo_move(_moved_piece) and game_state.pieces.has(_moved_piece.uid):
 		var view := _find_view(_moved_piece)
 		if view:
@@ -3101,6 +3107,7 @@ func _cpu_manage_hand() -> void:
 		SfxManager.play("discard")
 	if hand_panel:
 		hand_panel.refresh()
+	_update_opponent_hand_counter()
 
 func _cpu_try_deploy() -> void:
 	var hand: Array = game_state.hands[cpu.side]
@@ -3142,6 +3149,7 @@ func _cpu_try_deploy() -> void:
 				return
 		if hand_panel:
 			hand_panel.refresh()
+		_update_opponent_hand_counter()
 		_update_turn_label()
 
 # Called from _ready() so a menu selection takes effect without F6.
@@ -3284,6 +3292,7 @@ func _cpu_try_ityd() -> bool:
 	hand_panel.reveal_opponent_card(plan["card"], "CPU redeployed a piece.")
 	if hand_panel:
 		hand_panel.refresh()
+	_update_opponent_hand_counter()
 	if captured_tray:
 		captured_tray.refresh()
 	print("CPU ITYD: %s to %s" % [piece.designation, plan["cell"]])
@@ -3305,10 +3314,17 @@ func _cpu_try_oma() -> bool:
 	var ok := game_state.apply_one_man_army(cpu.side, plan["type_card"], plan["chosen_type"])
 	if not ok:
 		return false
+	# apply_one_man_army() discards the TYPE card; the OMA major card must be
+	# discarded separately, exactly as hand_panel._launch_one_man_army does.
+	for c in game_state.hands[cpu.side]:
+		if c.category == Card.Category.MAJOR_POWER and c.major_effect == Card.MajorEffect.ONE_MAN_ARMY:
+			game_state.discard_card(cpu.side, c)
+			break
 	SfxManager.play("play_major_card")
 	hand_panel.reveal_opponent_card(plan["type_card"], "CPU declared One Man Army.")
 	if hand_panel:
 		hand_panel.refresh()
+	_update_opponent_hand_counter()
 	print("CPU OMA: type %d" % plan["chosen_type"])
 	return true
 
@@ -3351,6 +3367,7 @@ func _cpu_try_jto() -> bool:
 	hand_panel.reveal_opponent_card(plan["card"], "CPU moved its Objective.")
 	if hand_panel:
 		hand_panel.refresh()
+	_update_opponent_hand_counter()
 	print("CPU JTO: objective to %s" % plan["dest"])
 	return true
 

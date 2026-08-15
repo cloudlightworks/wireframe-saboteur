@@ -57,6 +57,7 @@ const GENERAL_HOME_RADIUS := 4       # rough patrol range around our Objective
 const GENERAL_STRAY_COST := 9.0     # per cell beyond that radius
 const GENERAL_INTERCEPT := 22.0      # per cell closer to a piece aimed at our Objective
 const GENERAL_COVER := 14.0           # per cell closer to a threatened friendly piece
+const GENERAL_IDLE_PENALTY := 3.0    # discourage pointless General shuffling
 
 # --- Tempo ----------------------------------------------------
 const ADVANCE_WEIGHT := 1.2          # horizontal drift toward the Objective column
@@ -200,6 +201,12 @@ func _score_general(gs: GameState, general: Piece, new_cells: Array[Vector2i]) -
 	var score := 0.0
 	var here: Vector2i = new_cells[0]
 	var was: Vector2i = general.cells[0]
+
+	# If nothing actually threatens our Objective and no friendly piece is in
+	# danger, the General should hold position, not drift. Moving for a fraction
+	# of a point is the milling you see in logs.
+	if _objective_hunters(gs).is_empty() and _threatened_friendly_cells(gs, general).is_empty():
+		return -GENERAL_IDLE_PENALTY
 
 	# Stay in the neighbourhood of what we're protecting.
 	var obj := _objective_of(gs, side)
@@ -524,10 +531,25 @@ func _score_simple_card(gs: GameState, card: Card) -> float:
 				# Worth it when a same-type standoff is actually on the board.
 				return 30.0 if _standoff_exists(gs, card.effect_piece_type) else 4.0
 			Card.MinorEffect.JUST_IN_CASE:
-				# Bonus draw on our next capture. Cheap filler.
-				return 12.0
+				# Bonus draw only helps if we're about to capture. Worthless
+				# otherwise — hold it until a capture is actually available.
+				return 30.0 if _capture_available(gs) else -1.0
 	return -1.0
 
+# True if any of our pieces can capture something this turn.
+func _capture_available(gs: GameState) -> bool:
+	for piece in gs.pieces.values():
+		if piece.owner != side or not gs.piece_can_move(piece):
+			continue
+		for dest in RulesEngine.legal_destinations_for(piece, gs):
+			for other in gs.pieces.values():
+				if other.owner == side or other.uid == piece.uid:
+					continue
+				if _overlaps(_cells_after_move(piece, dest), other.cells):
+					if gs.resolve_capture_with_effects(piece, other, false) == RulesEngine.CaptureResult.CAPTURED:
+						return true
+	return false
+	
 # ------------------------------------------------------------
 # Discarding
 # ------------------------------------------------------------
@@ -679,12 +701,11 @@ func choose_ityd(gs: GameState, hand: Array, captured: Array, legal_cells: Array
 
 	return {"card": card, "piece_uid": piece.uid, "cell": best_cell}
 
-# ============================================================
-# One Man Army — lets a chosen type capture the enemy General.
-# Worth playing when we have a piece of some type within striking range
-# of their General, since that's an alternate win.
+# One Man Army is a TWO-card deployment: the OMA major power plus a Type card
+# naming which piece type may capture a General. apply_one_man_army() takes the
+# TYPE card, not the OMA card. The effect expires at end_turn(), so only declare
+# when a piece of that type is already adjacent and can strike this turn.
 # Returns {"type_card": Card, "chosen_type": int} or {}.
-# ============================================================
 func choose_one_man_army(gs: GameState, hand: Array) -> Dictionary:
 	if gs.one_man_army_active:
 		return {}
@@ -692,12 +713,20 @@ func choose_one_man_army(gs: GameState, hand: Array) -> Dictionary:
 	if their_general == null or their_general.cells.is_empty():
 		return {}
 
+	# Need an OMA major power in hand at all.
+	var has_oma := false
+	for c in hand:
+		if c.category == Card.Category.MAJOR_POWER and c.major_effect == Card.MajorEffect.ONE_MAN_ARMY:
+			has_oma = true
+			break
+	if not has_oma:
+		return {}
+
+	var g: Vector2i = their_general.cells[0]
 	var best: Dictionary = {}
 	var best_score := OMA_BASE
 	for type_card in hand:
-		if type_card.category != Card.Category.MAJOR_POWER:
-			continue
-		if type_card.major_effect != Card.MajorEffect.ONE_MAN_ARMY:
+		if type_card.category != Card.Category.TYPE:
 			continue
 		for chosen_type in type_card.piece_types:
 			# Closest own piece of this type to their General.
@@ -705,11 +734,9 @@ func choose_one_man_army(gs: GameState, hand: Array) -> Dictionary:
 			for p in gs.pieces.values():
 				if p.owner != side or p.type != chosen_type or p.cells.is_empty():
 					continue
-				nearest = min(nearest, _dist(p.cells[0], their_general.cells[0]))
-			# OMA expires at end_turn(), so only declare when a piece of this
-			# type can reach the General THIS turn.
+				nearest = min(nearest, _dist(p.cells[0], g))
 			if nearest > 1:
-				continue
+				continue   # can't reach this turn; the effect would be wasted
 			var s := OMA_BASE + (2 - nearest) * 8.0
 			if s > best_score:
 				best_score = s
@@ -775,12 +802,20 @@ func _attacker_cells(gs: GameState, obj: Piece) -> Array[Vector2i]:
 # note_hand(); empty when we hold no OMA card.
 var _oma_types: Dictionary = {}
 
-# The controller calls this before choose_move() so the scorer knows what our
-# hand makes possible. Keeps all hand-reading on the controller side.
+# Types our hand could empower with One Man Army — requires BOTH an OMA major
+# power and a Type card naming the type. Holding both is what motivates the
+# multi-turn walk toward the enemy General.
 func note_hand(hand: Array) -> void:
 	_oma_types.clear()
+	var has_oma := false
 	for c in hand:
 		if c.category == Card.Category.MAJOR_POWER and c.major_effect == Card.MajorEffect.ONE_MAN_ARMY:
+			has_oma = true
+			break
+	if not has_oma:
+		return
+	for c in hand:
+		if c.category == Card.Category.TYPE:
 			for t in c.piece_types:
 				_oma_types[t] = true
 
