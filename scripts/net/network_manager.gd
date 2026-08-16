@@ -41,6 +41,7 @@ func disconnect_network() -> void:
 	print("NetworkManager: disconnected")
 	received_croce.clear()
 	opponent_hand_count = 0
+	player_names = {Piece.Owner.BLUE: "", Piece.Owner.RED: ""}
 	NetworkManager.upnp_cleanup()
 
 func is_host() -> bool:
@@ -228,12 +229,12 @@ func receive_hand_state(my_hand_uids: Array, opponent_count: int, deck_count: in
 	hand_state_received.emit(my_hand_uids, opponent_count, deck_count)
 	
 var opponent_hand_count: int = 0
-
-signal deck_synced(deck_uids: Array)
-
-@rpc("authority", "reliable")
-func sync_deck(deck_uids: Array) -> void:
-	deck_synced.emit(deck_uids)
+# Match-scoped player identity. Host-authoritative: the host fills its own name
+# at host time and the client's name on receipt, then broadcasts both.
+# Deliberately NOT part of the rule-settings snapshot, which is a host->client
+# overwrite and would stomp whatever the joining player typed.
+var player_names: Dictionary = {Piece.Owner.BLUE: "", Piece.Owner.RED: ""}
+var local_player_name: String = ""
 	
 signal deploy_requested(sender_id: int, card_uids: Array)
 signal deploy_applied(card_uids: Array)
@@ -446,8 +447,33 @@ func version_rejected(host_version: String) -> void:
 
 @rpc("authority", "reliable")
 func version_accepted() -> void:
+	submit_player_name.rpc_id(1, local_player_name)
 	join_succeeded.emit()
-	
+
+signal player_names_changed()
+
+# Client -> host. The joining player names themselves; the host is the only
+# machine that decides what either name actually is.
+@rpc("any_peer", "reliable")
+func submit_player_name(raw: String) -> void:
+	if not is_host():
+		return
+	var rs = get_node_or_null("/root/RuleSettings")
+	if rs == null:
+		return
+	player_names[Piece.Owner.RED] = rs.sanitize_name(raw)
+	player_names[Piece.Owner.BLUE] = rs.sanitize_name(local_player_name)
+	sync_player_names.rpc(player_names[Piece.Owner.BLUE], player_names[Piece.Owner.RED])
+
+# Host -> everyone, including itself via call_local, so both machines take the
+# same code path and there is one place where names get set.
+@rpc("authority", "call_local", "reliable")
+func sync_player_names(blue_name: String, red_name: String) -> void:
+	player_names[Piece.Owner.BLUE] = blue_name
+	player_names[Piece.Owner.RED] = red_name
+	player_names_changed.emit()
+	print("NAMES: blue=", blue_name, " red=", red_name)
+
 signal deploy_mirror_changed(visible: bool, pos: Vector2)
 
 @rpc("any_peer", "unreliable_ordered")

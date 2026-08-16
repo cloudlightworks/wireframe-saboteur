@@ -122,11 +122,9 @@ func _begin_networked_game_from_data(merged_pieces: Array) -> void:
 	ui_layer.queue_free()
 	_teardown_croce_ui()
 	game_state.initialize_deck()
-	if NetworkManager.is_host():
-		var deck_uids: Array = []
-		for c in game_state.deck:
-			deck_uids.append(c.uid)
-		NetworkManager.sync_deck.rpc(deck_uids)
+	if not NetworkManager.is_host():
+		game_state.deck.clear()
+		game_state.deck_is_authoritative = false
 	in_croce = false
 	piece_layer.visible = true
 	_reveal_all_pieces()
@@ -148,7 +146,6 @@ func _ready() -> void:
 		NetworkManager.move_applied.connect(_on_move_applied)
 		NetworkManager.turn_end_requested.connect(_on_turn_end_requested)
 		NetworkManager.turn_ended.connect(_on_turn_ended)
-		NetworkManager.deck_synced.connect(_on_deck_synced)
 		NetworkManager.hand_state_received.connect(_on_hand_state_received)
 		NetworkManager.deploy_requested.connect(_on_deploy_requested)
 		NetworkManager.deploy_applied.connect(_on_deploy_applied)
@@ -344,18 +341,6 @@ func _finish_saboteur_local() -> void:
 		hand_panel.refresh()
 	_deployed_this_turn = true
 	_update_turn_label()
-	
-func _on_deck_synced(deck_uids: Array) -> void:
-	if NetworkManager.is_host():
-		return
-	if _card_lookup.is_empty():
-		_build_card_lookup()
-	var rebuilt: Array[Card] = []
-	for uid in deck_uids:
-		if _card_lookup.has(uid):
-			rebuilt.append(_card_lookup[uid])
-	game_state.deck = rebuilt
-	print("Deck synced from host — ", rebuilt.size(), " cards")
 	
 func _finish_ready() -> void:
 	if Engine.has_singleton("RuleSettings") or get_node_or_null("/root/RuleSettings"):
@@ -802,7 +787,7 @@ func _build_ui() -> void:
 
 	# "BLUE placing" status - outlined colored text
 	status_label = Label.new()
-	status_label.text = "%s Pieces" % RuleSettings.side_one_color.capitalize()
+	status_label.text = "%s's Pieces" % RuleSettings.display_name(Piece.Owner.BLUE)
 	status_label.add_theme_font_size_override("font_size", 16)
 	status_label.add_theme_color_override("font_color", RuleSettings.COLOR_HEX[RuleSettings.side_one_color])
 	status_label.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -1101,8 +1086,8 @@ func _build_pass_screen() -> void:
 	vbox.add_child(sub)
 
 func _show_pass_screen() -> void:
-	pass_label.text = "%s's setup complete.\nPass to %s." % [RuleSettings.side_one_color.capitalize(), RuleSettings.side_two_color.capitalize()] if current_player == Piece.Owner.BLUE \
-		else "%s's setup complete.\nStarting game..." % RuleSettings.side_two_color.capitalize()
+	pass_label.text = "%s's setup complete.\nPass to %s." % [RuleSettings.display_name(Piece.Owner.BLUE), RuleSettings.display_name(Piece.Owner.RED)] if current_player == Piece.Owner.BLUE \
+		else "%s's setup complete.\nStarting game..." % RuleSettings.display_name(Piece.Owner.RED)
 	pass_screen.visible = true
 
 func _spawn_ghost() -> void:
@@ -1152,8 +1137,6 @@ func _on_hand_state_received(my_hand_uids: Array, opponent_count: int, deck_coun
 			rebuilt.append(_card_lookup[uid])
 	game_state.hands[NetworkManager.my_side()] = rebuilt
 	NetworkManager.opponent_hand_count = opponent_count
-	while game_state.deck.size() > deck_count:
-		game_state.deck.pop_back()
 	if hand_panel:
 		hand_panel.refresh()
 		_update_opponent_hand_counter()
@@ -1253,7 +1236,7 @@ func _in_ityd_zone(cell: Vector2i, owner: Piece.Owner) -> bool:
 
 func _refresh_ui() -> void:
 	var is_blue := current_player == Piece.Owner.BLUE
-	status_label.text = "%s Pieces" % (RuleSettings.side_one_color.capitalize() if is_blue else RuleSettings.side_two_color.capitalize())
+	status_label.text = "%s's Pieces" % (RuleSettings.display_name(Piece.Owner.BLUE) if is_blue else RuleSettings.display_name(Piece.Owner.RED))
 	status_label.add_theme_color_override("font_color",
 		RuleSettings.COLOR_HEX[RuleSettings.side_one_color] if is_blue else RuleSettings.COLOR_HEX[RuleSettings.side_two_color])
 	for type in PIECE_ORDER:
@@ -2373,7 +2356,7 @@ func _show_win_screen(winner: Piece.Owner) -> void:
 	SfxManager.play("victory")
 	var is_blue := winner == Piece.Owner.BLUE
 	var win_color: Color = RuleSettings.COLOR_HEX[RuleSettings.side_one_color] if is_blue else RuleSettings.COLOR_HEX[RuleSettings.side_two_color]
-	var win_name: String = RuleSettings.side_one_color.capitalize() if is_blue else RuleSettings.side_two_color.capitalize()
+	var win_name: String = RuleSettings.display_name(Piece.Owner.BLUE) if is_blue else RuleSettings.display_name(Piece.Owner.RED)
 
 	var layer := CanvasLayer.new()
 	layer.layer = 128   # above everything
@@ -2808,7 +2791,7 @@ func _update_turn_label() -> void:
 	if turn_label == null:
 		return
 	var is_blue := game_state.current_player == Piece.Owner.BLUE
-	turn_label.text = "%s's Move" % (RuleSettings.side_one_color.capitalize() if is_blue else RuleSettings.side_two_color.capitalize())
+	turn_label.text = "%s's Move" % (RuleSettings.display_name(Piece.Owner.BLUE) if is_blue else RuleSettings.display_name(Piece.Owner.RED))
 	turn_label.add_theme_color_override("font_color",
 		RuleSettings.COLOR_HEX[RuleSettings.side_one_color] if is_blue else RuleSettings.COLOR_HEX[RuleSettings.side_two_color])
 	turn_label.add_theme_color_override("font_outline_color", Color.BLACK)

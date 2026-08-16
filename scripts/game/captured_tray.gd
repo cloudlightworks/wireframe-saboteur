@@ -111,8 +111,8 @@ func _build_frame() -> void:
 	halves.add_theme_constant_override("separation", 0)
 	frame_inner.add_child(halves)
 
-	_red_half = _build_half(RuleSettings.side_two_color.capitalize(), RuleSettings.COLOR_HEX[RuleSettings.side_two_color], false, Piece.Owner.RED)
-	_blue_half = _build_half(RuleSettings.side_one_color.capitalize(), RuleSettings.COLOR_HEX[RuleSettings.side_one_color], true, Piece.Owner.BLUE)
+	_red_half = _build_half(RuleSettings.display_name(Piece.Owner.RED), RuleSettings.COLOR_HEX[RuleSettings.side_two_color], false, Piece.Owner.RED)
+	_blue_half = _build_half(RuleSettings.display_name(Piece.Owner.BLUE), RuleSettings.COLOR_HEX[RuleSettings.side_one_color], true, Piece.Owner.BLUE)
 	_red_half.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_blue_half.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	halves.add_child(_red_half)
@@ -176,9 +176,9 @@ func refresh_colors() -> void:
 	_red_bar.color = red_color
 	_blue_bar.color = blue_color
 
-	_red_header.text = RuleSettings.side_two_color.capitalize()
+	_red_header.text = RuleSettings.display_name(Piece.Owner.RED)
 	_red_header.add_theme_color_override("font_color", red_color)
-	_blue_header.text = RuleSettings.side_one_color.capitalize()
+	_blue_header.text = RuleSettings.display_name(Piece.Owner.BLUE)
 	_blue_header.add_theme_color_override("font_color", blue_color)
 
 	refresh()

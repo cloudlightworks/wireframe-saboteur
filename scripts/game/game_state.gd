@@ -40,12 +40,18 @@ var hands: Dictionary = {
 	Piece.Owner.BLUE: [],
 	Piece.Owner.RED: [],
 }
+# False on non-authoritative clients. The local shadow simulation must never
+# draw, because it holds no legitimate copy of the deck. Host and local play
+# leave this true, preserving existing behavior exactly.
+var deck_is_authoritative: bool = true
 
 func initialize_deck() -> void:
 	deck = CardDatabase.build_full_deck()
 	deck.shuffle()
 
 func draw_card(player: Piece.Owner) -> Card:
+	if not deck_is_authoritative:
+		return null
 	if deck.is_empty():
 		if discard_pile.is_empty():
 			return null

@@ -116,13 +116,7 @@ func _on_option_selected(id: String) -> void:
 			GameSetup.cpu_side = Piece.Owner.RED
 			get_tree().change_scene_to_file(GAME_SCENE)
 		"host_game":
-			NetworkManager.disconnect_network()
-			NetworkManager.upnp_result.connect(_on_upnp_result, CONNECT_ONE_SHOT)
-			var err: int = NetworkManager.host_game_upnp()
-			if err != OK:
-				push_error("host_game failed: %s" % err)
-				return
-			get_tree().change_scene_to_file(GAME_SCENE)
+			_show_host_prompt()
 		"join_game":
 			_show_join_prompt()
 		"how_to_play":
@@ -144,6 +138,7 @@ func _on_option_selected(id: String) -> void:
 
 
 const JOIN_ADDRESS_PATH := "user://last_join_address.txt"
+const PLAYER_NAME_PATH := "user://player_name.txt"
 
 func _show_join_prompt() -> void:
 	var layer := CanvasLayer.new()
@@ -191,6 +186,14 @@ func _show_join_prompt() -> void:
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(status)
 	
+	var name_field := LineEdit.new()
+	name_field.text = _load_player_name()
+	name_field.placeholder_text = "Your name (optional)"
+	name_field.max_length = 16
+	name_field.custom_minimum_size = Vector2(320, 44)
+	name_field.add_theme_font_size_override("font_size", 20)
+	col.add_child(name_field)
+
 	var field := LineEdit.new()
 	field.text = _load_last_address()
 	field.placeholder_text = "127.0.0.1"
@@ -216,6 +219,10 @@ func _show_join_prompt() -> void:
 		if addr == "":
 			addr = "127.0.0.1"
 		_save_last_address(addr)
+		var pname := name_field.text.strip_edges()
+		_save_player_name(pname)
+		GameSetup.vs_cpu = false
+		NetworkManager.local_player_name = pname
 		status.text = "Connecting to %s…" % addr
 		connect_btn.disabled = true
 		field.editable = false
@@ -286,3 +293,99 @@ func _save_last_address(addr: String) -> void:
 	var f := FileAccess.open(JOIN_ADDRESS_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(addr)
+
+func _load_player_name() -> String:
+	if FileAccess.file_exists(PLAYER_NAME_PATH):
+		var f := FileAccess.open(PLAYER_NAME_PATH, FileAccess.READ)
+		if f:
+			return f.get_as_text().strip_edges()
+	return ""
+
+func _save_player_name(n: String) -> void:
+	var f := FileAccess.open(PLAYER_NAME_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(n)
+
+func _show_host_prompt() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	add_child(layer)
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.7)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.position = Vector2.ZERO
+	shade.size = get_viewport().get_visible_rect().size
+	layer.add_child(shade)
+
+	var center := CenterContainer.new()
+	center.position = Vector2.ZERO
+	center.size = get_viewport().get_visible_rect().size
+	layer.add_child(center)
+
+	var box := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.1, 0.1, 0.1, 0.98)
+	sb.set_corner_radius_all(12)
+	sb.set_content_margin_all(28)
+	box.add_theme_stylebox_override("panel", sb)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 16)
+
+	var title := Label.new()
+	title.text = "Host Game"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 26)
+	col.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Leave blank to be called by your side color."
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 14)
+	col.add_child(hint)
+
+	var name_field := LineEdit.new()
+	name_field.text = _load_player_name()
+	name_field.placeholder_text = "Your name (optional)"
+	name_field.max_length = 16
+	name_field.custom_minimum_size = Vector2(320, 44)
+	name_field.add_theme_font_size_override("font_size", 20)
+	col.add_child(name_field)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.custom_minimum_size = Vector2(150, 46)
+	cancel.pressed.connect(func(): layer.queue_free())
+	row.add_child(cancel)
+
+	var start_btn := Button.new()
+	start_btn.text = "Start"
+	start_btn.custom_minimum_size = Vector2(150, 46)
+	var do_host := func():
+		var pname := name_field.text.strip_edges()
+		_save_player_name(pname)
+		GameSetup.vs_cpu = false
+		NetworkManager.disconnect_network()
+		NetworkManager.local_player_name = pname
+		NetworkManager.player_names[Piece.Owner.BLUE] = RuleSettings.sanitize_name(pname)
+		NetworkManager.upnp_result.connect(_on_upnp_result, CONNECT_ONE_SHOT)
+		var err: int = NetworkManager.host_game_upnp()
+		if err != OK:
+			push_error("host_game failed: %s" % err)
+			layer.queue_free()
+			return
+		get_tree().change_scene_to_file(GAME_SCENE)
+	start_btn.pressed.connect(do_host)
+	name_field.text_submitted.connect(func(_t): do_host.call())
+	row.add_child(start_btn)
+
+	col.add_child(row)
+	box.add_child(col)
+	center.add_child(box)
+	name_field.grab_focus()
+	name_field.select_all()

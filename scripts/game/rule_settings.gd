@@ -18,6 +18,33 @@ var ityd_deployment_zone_only: bool = true
 var side_one_color: String = "blue"
 var side_two_color: String = "red"
 
+# ---- Player names (online only) ----
+# Hotseat and CPU play always fall back to the side color, unchanged.
+# Note: this Node already has `name` from Node — never use it for a player name.
+
+func sanitize_name(raw: String) -> String:
+	var s := ""
+	for c in raw:
+		if c.unicode_at(0) >= 32 and c != "\n" and c != "\t":
+			s += c
+	s = s.strip_edges()
+	while s.contains("  "):
+		s = s.replace("  ", " ")
+	if s.length() > 16:
+		s = s.substr(0, 16).strip_edges()
+	return s
+
+func display_name(side: Piece.Owner) -> String:
+	var nm := get_node_or_null("/root/NetworkManager")
+	if nm != null and nm.is_networked():
+		var n: String = nm.player_names.get(side, "")
+		if n != "":
+			return n
+	var gs := get_node_or_null("/root/GameSetup")
+	if gs != null and gs.vs_cpu:
+		return "CPU" if side == gs.cpu_side else "Player"
+	return (side_one_color if side == Piece.Owner.BLUE else side_two_color).capitalize()
+	
 func apply_to(rules: GameRules) -> void:
 	rules.close_call_shields_all_simultaneous_mutuals = close_call_shields_all_simultaneous_mutuals
 	rules.c_captures_resolve_independently = c_captures_resolve_independently
