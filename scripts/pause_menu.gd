@@ -5,6 +5,7 @@ signal resumed
 signal return_to_menu
 signal quit_to_desktop
 signal forfeited
+signal board_flip_requested
 
 const INK := Color("#141414")
 const MUTED := Color("#7a7368")
@@ -77,6 +78,7 @@ func _show_buttons() -> void:
 
 	col.add_child(_spacer(6))
 	col.add_child(_make_button("Resume", true, func(): resumed.emit()))
+	col.add_child(_make_button("Flip Board View", false, func(): board_flip_requested.emit()))
 	col.add_child(_make_button("Sound Options", false, func(): _show_options()))
 	col.add_child(_make_button("Return to Main Menu", false, func(): return_to_menu.emit()))
 	col.add_child(_make_button("Forfeit Match", false, func(): _show_forfeit_confirm()))

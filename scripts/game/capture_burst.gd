@@ -1,9 +1,6 @@
 extends Sprite2D
 class_name CaptureBurst
 
-const CELL = 64
-const BOARD_ORIGIN = Vector2(-576, -512)
-
 # Player colors for tinting (fill is white in the asset so modulate sets the hue)
 const BLUE_TINT := Color(0.30, 0.50, 0.95)
 const RED_TINT := Color(0.90, 0.28, 0.28)
@@ -29,7 +26,7 @@ func play_at(cells: Array[Vector2i], owner: Piece.Owner) -> void:
 	# Normalize: 1024px art scaled so FINAL_SCALE ≈ one cell for a 1x1 piece.
 	# Larger pieces (B/C) get a proportionally bigger burst via cell span.
 	var span := _cell_span(cells)
-	var base := (float(CELL) * span * FINAL_SCALE) / 1024.0
+	var base := (float(BoardView.CELL) * span * FINAL_SCALE) / 1024.0
 	scale = Vector2.ZERO
 	rotation_degrees = -SPIN_DEGREES * 0.5
 
@@ -48,12 +45,13 @@ func play_at(cells: Array[Vector2i], owner: Piece.Owner) -> void:
 	tw2.chain().tween_callback(queue_free)
 
 func _centroid_world(cells: Array[Vector2i]) -> Vector2:
+	# Convert each cell to its center first, then average the world positions.
+	# Averaging cells and then converting would also work unflipped, but this
+	# order stays correct under a board flip.
 	var sum := Vector2.ZERO
 	for c in cells:
-		sum += Vector2(c.x, c.y)
-	var avg := sum / float(cells.size())
-	# +0.5 to land on cell center rather than top-left
-	return BOARD_ORIGIN + Vector2((avg.x + 0.5) * CELL, (avg.y + 0.5) * CELL)
+		sum += BoardView.grid_to_world_center(c)
+	return sum / float(cells.size())
 
 func _cell_span(cells: Array[Vector2i]) -> float:
 	if cells.size() <= 1:

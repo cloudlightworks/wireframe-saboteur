@@ -2,7 +2,6 @@ extends Node2D
 class_name PieceView
 
 const CELL = 64
-const BOARD_ORIGIN = Vector2(-576, -512)  # board centered at 0,0; top-left offset
 
 var piece: Piece
 var _saboteur_pulse_tween: Tween
@@ -109,12 +108,7 @@ func _label_outline() -> Color:
 	return Color(0, 0, 0, 0.75)
 	
 func _update_position() -> void:
-	var min_x := piece.cells[0].x
-	var min_y := piece.cells[0].y
-	for cell in piece.cells:
-		min_x = mini(min_x, cell.x)
-		min_y = mini(min_y, cell.y)
-	position = BOARD_ORIGIN + Vector2(min_x * CELL, min_y * CELL)
+	position = BoardView.cells_to_world(piece.cells)
 
 # Returns candidate filenames, best first: the exact numbered file, then the
 # type blank when the active theme wants engine-drawn designations.

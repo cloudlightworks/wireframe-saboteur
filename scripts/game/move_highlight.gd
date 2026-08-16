@@ -6,6 +6,7 @@ const CELL = 64
 var dims: Vector2i = Vector2i(1, 1)
 var highlight_color: Color = Color(0.1, 0.9, 0.3, 1.0)
 var dest_cell: Vector2i = Vector2i.ZERO
+var origin_cell: Vector2i = Vector2i.ZERO
 
 func _process(_delta: float) -> void:
 	queue_redraw()

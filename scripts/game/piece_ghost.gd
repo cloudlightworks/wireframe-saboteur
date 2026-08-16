@@ -2,7 +2,6 @@ extends Node2D
 class_name PieceGhost
 
 const CELL = 64
-const BOARD_ORIGIN = Vector2(-576, -512)
 
 var piece_type: Piece.Type = Piece.Type.A
 var orientation: Piece.PieceOrientation = Piece.PieceOrientation.VERTICAL
@@ -11,12 +10,16 @@ var grid_pos: Vector2i = Vector2i.ZERO
 
 func _process(_delta: float) -> void:
 	valid = true
-	var mouse := get_global_mouse_position()
-	var local := mouse - BOARD_ORIGIN
-	var col := int(local.x / CELL)
-	var row := int(local.y / CELL)
-	grid_pos = Vector2i(col, row)
-	position = BOARD_ORIGIN + Vector2(col * CELL, row * CELL)
+	grid_pos = BoardView.world_to_grid(get_global_mouse_position())
+	# Anchor from the full cell set, not the single origin cell: _draw() extends
+	# right and down in screen space, which is left and up in board space when
+	# the board is flipped.
+	var dims := _get_dims()
+	var ghost_cells: Array = []
+	for r in range(dims.y):
+		for c in range(dims.x):
+			ghost_cells.append(grid_pos + Vector2i(c, r))
+	position = BoardView.cells_to_world(ghost_cells)
 	queue_redraw()
 
 func _draw() -> void:

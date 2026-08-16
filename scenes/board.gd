@@ -11,6 +11,13 @@ func refresh_colors() -> void:
 	# PNG only, because Godot cannot rasterise SVG at runtime. Try both.
 	var top := _half_texture(RuleSettings.side_one_color)
 	var bottom := _half_texture(RuleSettings.side_two_color)
+	# Under a flip, side one's home rows are drawn at the bottom of the screen,
+	# so the half textures swap with them. Swapping rather than rotating keeps
+	# any grid or tick-mark art upright.
+	if BoardView.flipped:
+		var swap := top
+		top = bottom
+		bottom = swap
 	if top != null:
 		top_half.texture = top
 	if bottom != null:

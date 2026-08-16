@@ -25,6 +25,7 @@ NetworkManager="*uid://bfmvk8wg6m1eg"
 TextureManager="*uid://c01u5xumj6y1g"
 ChatManager="*uid://ds2mj8n06qaj4"
 GameSetup="*uid://c5ism2xp65gvl"
+BoardView="*uid://ntv4qts55kj0"
 
 [display]
 

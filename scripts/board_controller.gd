@@ -1,8 +1,5 @@
 extends Node2D
 
-const CELL = 64
-const BOARD_ORIGIN = Vector2(-576, -512)
-
 const REQUIRED_COUNTS := {
 	Piece.Type.A: 12, Piece.Type.B: 6, Piece.Type.C: 3,
 	Piece.Type.GENERAL: 1, Piece.Type.OBJECTIVE: 1,
@@ -617,8 +614,8 @@ func _show_move_ripple(piece: Piece) -> void:
 
 	var sum := Vector2.ZERO
 	for cell in piece.cells:
-		sum += Vector2(cell.x * CELL + CELL * 0.5, cell.y * CELL + CELL * 0.5)
-	var center: Vector2 = BOARD_ORIGIN + sum / float(piece.cells.size())
+		sum += BoardView.grid_to_world_center(cell)
+	var center: Vector2 = sum / float(piece.cells.size())
 
 	move_ripple = RippleMarker.new()
 	move_ripple.position = center
@@ -849,15 +846,20 @@ func _build_croce_portrait() -> void:
 	# from BOARD_ORIGIN; ui_layer is screen-space, so the selected board point is
 	# converted through the viewport's active canvas transform below.
 	# Blue half = rows 0-7 (center ~row 4), Red half = rows 8-15 (center ~row 12).
-	var center_col := 19.0 if current_player == Piece.Owner.BLUE else 9.0
-	var opposing_row := 15.5 if current_player == Piece.Owner.BLUE else 4.0
-	var board_pt := BOARD_ORIGIN + Vector2(center_col * CELL, opposing_row * CELL)
+	# The portrait spawns on the half opposite the player setting up. A flipped
+	# board swaps which half that is on screen, so pick from the flipped side.
+	var portrait_side: Piece.Owner = current_player
+	if BoardView.flipped:
+		portrait_side = Piece.Owner.RED if current_player == Piece.Owner.BLUE else Piece.Owner.BLUE
+	var center_col := 19.0 if portrait_side == Piece.Owner.BLUE else 9.0
+	var opposing_row := 15.5 if portrait_side == Piece.Owner.BLUE else 4.0
+	var board_pt := BoardView.BOARD_ORIGIN + Vector2(center_col * BoardView.CELL, opposing_row * BoardView.CELL)
 	# Preserve the original hand-tuned opening placement for Blue's Croce. That
 	# position was authored directly in this CanvasLayer's coordinate space.
 	# Only the post-handoff portrait needs world-to-screen conversion, because its
 	# blue-half board point has a negative world Y and would otherwise be offscreen.
 	var portrait_pt: Vector2 = board_pt
-	if current_player == Piece.Owner.RED:
+	if portrait_side == Piece.Owner.RED:
 		portrait_pt = get_viewport().get_canvas_transform() * board_pt
 	frame.position = portrait_pt - Vector2(frame_w, frame_h) * 0.5
 	frame.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -1360,6 +1362,7 @@ func _toggle_pause_menu() -> void:
 	add_child(_pause_menu)
 	_pause_menu.resumed.connect(_close_pause_menu)
 	_pause_menu.return_to_menu.connect(_on_pause_return_to_menu)
+	_pause_menu.board_flip_requested.connect(_on_pause_flip_board)
 	_pause_menu.quit_to_desktop.connect(_on_pause_quit)
 	_pause_menu.forfeited.connect(_on_pause_forfeit)
 	get_tree().paused = true
@@ -1381,6 +1384,18 @@ func _on_pause_forfeit() -> void:
 	var winner: Piece.Owner = Piece.Owner.RED if game_state.current_player == Piece.Owner.BLUE else Piece.Owner.BLUE
 	_show_win_screen(winner)
 	
+func _on_pause_flip_board() -> void:
+	BoardView.flipped = not BoardView.flipped
+	_refresh_board_view()
+
+func _refresh_board_view() -> void:
+	get_node("Board").refresh_colors()
+	for child in piece_layer.get_children():
+		if child is PieceView:
+			child.refresh_position()
+	if selected_piece:
+		_show_highlights(selected_piece)
+		
 func _close_pause_menu() -> void:
 	get_tree().paused = false
 	if _pause_menu:
@@ -1751,9 +1766,10 @@ func _show_jto_highlights() -> void:
 	for to in _legal_jto_destinations(from):
 		var h := MoveHighlight.new()
 		h.dest_cell = to
+		h.origin_cell = to
 		h.highlight_color = RuleSettings.ghost_frame_color()
 		h.dims = Vector2i(1, 1)
-		h.position = BOARD_ORIGIN + Vector2(to.x * CELL, to.y * CELL)
+		h.position = BoardView.grid_to_world(to)
 		piece_layer.add_child(h)
 		highlights.append(h)
 
@@ -1962,9 +1978,7 @@ func _try_ityd_place() -> void:
 	_update_turn_label()
 	
 func _mouse_to_grid() -> Vector2i:
-	var mouse := get_global_mouse_position()
-	var local := mouse - BOARD_ORIGIN
-	return Vector2i(int(local.x / CELL), int(local.y / CELL))
+	return BoardView.world_to_grid(get_global_mouse_position())
 
 # --- Placed-sticker (taunt-on-board) support. Purely cosmetic. ---
 
@@ -1978,7 +1992,7 @@ func _on_sticker_placement_requested(sticker_id: String) -> void:
 	ChatManager.send_placed_sticker(sticker_id, cell)
 
 func _on_placed_sticker_received(_side: int, sticker_id: String, cell: Vector2i) -> void:
-	var world := BOARD_ORIGIN + Vector2(cell.x * CELL + CELL * 0.5, cell.y * CELL + CELL * 0.5)
+	var world := BoardView.grid_to_world_center(cell)
 	if sticker_id == "jim":
 		_spawn_croce_wash()
 	_spawn_board_sticker(sticker_id, world)
@@ -2031,10 +2045,14 @@ func _spawn_croce_wash() -> void:
 	var wash := Sprite2D.new()
 	wash.texture = tex
 	wash.centered = true
-	# Center over the board: 18 cols x 16 rows of CELL px from BOARD_ORIGIN.
-	wash.position = BOARD_ORIGIN + Vector2(18 * CELL * 0.5, 16 * CELL * 0.5)
+	# Center of the board. Invariant under a 180 degree flip, so no conversion
+	# needed — but sourced from BoardView so a board-size change can't strand it.
+	wash.position = BoardView.BOARD_ORIGIN + Vector2(
+		BoardView.board_width * BoardView.CELL * 0.5,
+		BoardView.board_height * BoardView.CELL * 0.5
+	)
 	# Blow it up to cover the whole board, comically oversized.
-	var board_w := 18.0 * CELL
+	var board_w := float(BoardView.board_width) * BoardView.CELL
 	var longest: float = max(tex.get_width(), tex.get_height())
 	if longest > 0:
 		wash.scale = Vector2.ONE * (board_w * 1.25 / longest)
@@ -2101,16 +2119,20 @@ func _show_highlights(piece: Piece) -> void:
 					new_cell = dc
 					break
 			h.dims = Vector2i(2, 1) if dest_cells[0].y == dest_cells[1].y else Vector2i(1, 2)
-			var min_x := mini(dest_cells[0].x, dest_cells[1].x)
-			var min_y := mini(dest_cells[0].y, dest_cells[1].y)
-			h.position = BOARD_ORIGIN + Vector2(min_x * CELL, min_y * CELL)
+			h.origin_cell = Vector2i(
+				mini(dest_cells[0].x, dest_cells[1].x),
+				mini(dest_cells[0].y, dest_cells[1].y)
+			)
+			h.position = BoardView.cells_to_world(dest_cells)
 			var is_slide := piece.cells.has(dest_cells[0]) or piece.cells.has(dest_cells[1])
 			if is_slide:
 				h.dims = Vector2i(1, 1)
-				h.position = BOARD_ORIGIN + Vector2(new_cell.x * CELL, new_cell.y * CELL)
+				h.origin_cell = new_cell
+				h.position = BoardView.grid_to_world(new_cell)
 		else:
 			h.dims = _piece_dims(piece)
-			h.position = BOARD_ORIGIN + Vector2(dest.x * CELL, dest.y * CELL)
+			h.origin_cell = dest
+			h.position = BoardView.cells_to_world(RulesEngine.cells_at(piece, dest))
 		piece_layer.add_child(h)
 		highlights.append(h)
 		
@@ -2124,16 +2146,13 @@ func _highlight_at(grid: Vector2i) -> Vector2i:
 	for h in highlights:
 		if h.dest_cell == grid:
 			return h.dest_cell
-	# Second pass: any overlap
+	# Second pass: any overlap. Walks cell space from origin_cell rather than
+	# converting position back to a cell, which would be wrong under a flip.
 	for h in highlights:
-		var h_grid := Vector2i(
-			int((h.position.x - BOARD_ORIGIN.x) / CELL),
-			int((h.position.y - BOARD_ORIGIN.y) / CELL)
-		)
 		var dims: Vector2i = h.dims
 		for r in range(dims.y):
 			for c in range(dims.x):
-				if h_grid + Vector2i(c, r) == grid:
+				if h.origin_cell + Vector2i(c, r) == grid:
 					return h.dest_cell
 	return Vector2i(-1, -1)
 
