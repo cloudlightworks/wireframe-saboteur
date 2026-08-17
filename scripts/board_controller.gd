@@ -41,6 +41,7 @@ var _card_lookup: Dictionary = {}
 var debug_saboteur_armed: bool = false
 var saboteur_targeting: bool = false
 var saboteur_target_piece: Piece = null
+var _sab_preview_views: Array = []   # PieceViews pulsing as declare-as candidates
 var saboteur_type_card: Card = null
 var saboteur_chart_card: Card = null
 var saboteur_chosen_type: Piece.Type
@@ -66,9 +67,13 @@ var _turn_timer_left: float = 0.0
 var _turn_timer_paused: bool = false   # true while a card is selected
 var _pulse_t: float = 0.0
 var turn_timer_ring: Panel
+var _ring_sb_active: StyleBoxFlat    # yellow, current player
+var _ring_sb_idle: StyleBoxFlat      # grey, waiting player
+var _timer_ring_is_mine: bool = true
 var _et_style_normal: StyleBox
 var _et_style_pale: StyleBox
 var move_ripple: RippleMarker = null
+var _capture_ripples: Array = []   # RippleMarker splashes on this turn's capture squares
 
 var ityd_selecting: bool = false      # waiting for player to click a captured piece
 var ityd_placing: bool = false        # ghost placement phase
@@ -604,30 +609,61 @@ func _on_turn_ended() -> void:
 
 func _show_move_ripple(piece: Piece) -> void:
 	_dismiss_move_ripple()
-	if piece == null or not game_state.pieces.has(piece.uid):
-		return
+
+	# Consume the capture record unconditionally, even if nothing is drawn
+	# below, so a hidden turn's captures do not leak into the next ripple.
+	var capture_cells: Array = game_state.capture_cells_this_turn.duplicate()
+	game_state.capture_cells_this_turn.clear()
+
 	# Only for the player about to act. In hotseat there's one screen, so show.
 	if NetworkManager.is_networked() and game_state.current_player != NetworkManager.my_side():
+		return
+
+	# Capture splashes first: little raindrops on each square something died on,
+	# staggered so they land in a loose random series rather than all at once.
+	var drop_key: String = RuleSettings.side_one_color if game_state.current_player == Piece.Owner.BLUE \
+		else RuleSettings.side_two_color
+	var drop_color: Color = RuleSettings.COLOR_HEX.get(drop_key, Color("#141414"))
+	var delay: float = 0.0
+	for cells in capture_cells:
+		if cells.is_empty():
+			continue
+		var drop := RippleMarker.new()
+		drop.make_raindrop()
+		drop.position = _cells_center(cells)
+		drop.color = drop_color
+		drop.start_delay = delay
+		add_child(drop)
+		_capture_ripples.append(drop)
+		delay += randf_range(0.12, 0.34)
+
+	# Then the mover ripple, if the piece is still on the board.
+	if piece == null or not game_state.pieces.has(piece.uid):
 		return
 	if piece.cells.is_empty():
 		return
 
-	var sum := Vector2.ZERO
-	for cell in piece.cells:
-		sum += BoardView.grid_to_world_center(cell)
-	var center: Vector2 = sum / float(piece.cells.size())
-
 	move_ripple = RippleMarker.new()
-	move_ripple.position = center
+	move_ripple.position = _cells_center(piece.cells)
 	var key: String = RuleSettings.side_one_color if piece.owner == Piece.Owner.BLUE \
 		else RuleSettings.side_two_color
 	move_ripple.color = RuleSettings.COLOR_HEX.get(key, Color("#141414"))
 	add_child(move_ripple)
 
+func _cells_center(cells: Array) -> Vector2:
+	var sum := Vector2.ZERO
+	for cell in cells:
+		sum += BoardView.grid_to_world_center(cell)
+	return sum / float(cells.size())
+
 func _dismiss_move_ripple() -> void:
 	if move_ripple and is_instance_valid(move_ripple):
 		move_ripple.dismiss()
 	move_ripple = null
+	for r in _capture_ripples:
+		if r and is_instance_valid(r):
+			r.dismiss()
+	_capture_ripples.clear()
 	
 func _resolve_saboteur(side: Piece.Owner, type_uid: int, chart_uid: int, chosen_type: int, target_uid: int, from_hand: bool) -> bool:
 	var type_card = _card_in_hand(side, type_uid) if from_hand else _card_by_uid(type_uid)
@@ -665,7 +701,7 @@ func _tick_turn_timer(delta: float) -> void:
 	var urgency: float = clamp(frac, 0.0, 1.0)
 	_pulse_t += delta * (3.0 + urgency * 9.0)
 	var glow: float = 0.5 + 0.5 * sin(_pulse_t)
-	if turn_timer_ring:
+	if turn_timer_ring and _timer_ring_is_mine:
 		turn_timer_ring.modulate.a = 0.25 + 0.75 * glow * (0.35 + 0.65 * urgency)
 
 	if _turn_timer_left <= 0.0:
@@ -695,8 +731,13 @@ func _on_turn_timer_started(seconds: float) -> void:
 		turn_timer_bar.visible = true
 	var my_turn: bool = (not NetworkManager.is_networked()) \
 		or game_state.current_player == NetworkManager.my_side()
+	_timer_ring_is_mine = my_turn
 	if turn_timer_ring:
-		turn_timer_ring.visible = my_turn
+		turn_timer_ring.visible = true
+		turn_timer_ring.add_theme_stylebox_override("panel",
+			_ring_sb_active if my_turn else _ring_sb_idle)
+		# The waiting player's ring is steady; only the active one pulses.
+		turn_timer_ring.modulate.a = 1.0 if not my_turn else turn_timer_ring.modulate.a
 	if end_turn_button and _et_style_pale:
 		end_turn_button.add_theme_stylebox_override("normal", _et_style_pale)
 		end_turn_button.add_theme_stylebox_override("hover", _et_style_pale)
@@ -1251,7 +1292,7 @@ func _b_new_cells_for_dest(piece: Piece, swung_cell: Vector2i) -> Array[Vector2i
 func _input(event: InputEvent) -> void:
 	if not _ready_finished:
 		return
-	if event is InputEventMouseButton and event.pressed and move_ripple:
+	if event is InputEventMouseButton and event.pressed and (move_ripple or not _capture_ripples.is_empty()):
 		_dismiss_move_ripple()
 	if chat_overlay and chat_overlay.is_aiming():
 		if event is InputEventMouseButton and event.pressed:
@@ -1700,6 +1741,36 @@ func _cancel_saboteur_targeting() -> void:
 	hand_panel.restore_deploy_card()
 	set_turn_timer_paused(false)
 
+# Pulses every piece the player could convert, one per selectable type on the
+# card, while the "Declare as" picker is open. Presentation only — nothing is
+# committed until a type is chosen. Types with no live target simply don't
+# pulse, which is the point: you can see which choices are real.
+func preview_saboteur_candidates(type_card: Card, chart_card: Card) -> void:
+	clear_saboteur_preview()
+	if type_card == null or chart_card == null:
+		return
+	var opponent := Piece.Owner.RED if game_state.current_player == Piece.Owner.BLUE else Piece.Owner.BLUE
+	for t in type_card.piece_types:
+		var designation := RulesEngine.designation_from_cards(type_card, chart_card, t)
+		if designation == "":
+			continue
+		var target := game_state._find_piece_by_designation(designation, opponent)
+		if target == null:
+			continue
+		var view := _find_view(target)
+		if view:
+			view.set_outline_width(5.0)
+			view.set_saboteur_pulse(true)
+			_sab_preview_views.append(view)
+
+func clear_saboteur_preview() -> void:
+	for v in _sab_preview_views:
+		if v and is_instance_valid(v):
+			v.set_saboteur_pulse(false)
+			v.set_state(0)
+			v.set_outline_width(2.0)
+	_sab_preview_views.clear()
+	
 func _confirm_saboteur() -> void:
 	if NetworkManager.is_networked():
 		if saboteur_type_card == null or saboteur_chart_card == null or saboteur_target_piece == null:
@@ -2073,6 +2144,8 @@ func _spawn_croce_wash() -> void:
 	
 func _try_select(grid: Vector2i) -> void:
 	if NetworkManager.is_networked() and game_state.current_player != NetworkManager.my_side():
+		return
+	if cpu != null and game_state.current_player == cpu.side:
 		return
 	for piece in game_state.pieces.values():
 		if piece.owner != game_state.current_player:
@@ -2579,6 +2652,12 @@ func _build_turn_ui() -> void:
 	ring_sb.border_color = Color("#FFCC00")
 	ring_sb.set_border_width_all(5)
 	ring_sb.set_corner_radius_all(10)
+	# Grey twin for the waiting player: same geometry, so the countdown bar's
+	# corners are framed on both screens rather than left square on one.
+	var ring_sb_idle := ring_sb.duplicate()
+	ring_sb_idle.border_color = Color("#8a857c")
+	_ring_sb_active = ring_sb
+	_ring_sb_idle = ring_sb_idle
 	turn_timer_ring.add_theme_stylebox_override("panel", ring_sb)
 	turn_timer_ring.visible = false
 	layer.add_child(turn_timer_ring)

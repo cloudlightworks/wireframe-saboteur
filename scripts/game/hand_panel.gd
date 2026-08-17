@@ -746,12 +746,17 @@ func _show_type_picker(type_card: Card, chart_card: Card) -> void:
 	picker.add_theme_constant_override("separation", 8)
 	var count := type_card.piece_types.size()
 	picker.position = _picker_anchor_position(count * 44.0 + (count - 1) * 8.0)
+	# Pulse every convertible piece so the player can see what each choice means.
+	if controller:
+		controller.preview_saboteur_candidates(type_card, chart_card)
 	for t in type_card.piece_types:
 		var b := Button.new()
 		b.text = "Declare as %s" % _type_letter(t)
 		_style_picker_button(b)
 		b.pressed.connect(func():
 			picker.queue_free()
+			if controller:
+				controller.clear_saboteur_preview()
 			_launch_saboteur(type_card, chart_card, t)
 		)
 		picker.add_child(b)

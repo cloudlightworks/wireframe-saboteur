@@ -6,6 +6,11 @@ const HAND_LIMIT := 9
 var board: Board
 var pieces: Dictionary = {}   # uid -> Piece
 var game_history: Array[Dictionary] = []
+# Presentation only: cells occupied by pieces captured during the current turn,
+# for the capture ripple. Recorded here because capture_piece() is the single
+# choke point every capture path goes through. Consumed and cleared by the
+# controller at end of turn; no rule reads it.
+var capture_cells_this_turn: Array = []   # each entry: Array[Vector2i]
 
 var current_player: Piece.Owner = Piece.Owner.BLUE
 var turn_number: int = 1
@@ -259,6 +264,8 @@ func capture_piece(uid: int) -> void:
 		if piece._original_owner_set:
 			piece.owner = piece.original_owner
 		piece.status_effects.clear()
+		if not piece.cells.is_empty():
+			capture_cells_this_turn.append(piece.cells.duplicate())
 		captured_pieces[piece.owner].append(piece)
 		pieces.erase(uid)
 
