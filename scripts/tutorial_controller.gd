@@ -54,6 +54,8 @@ var hand_mode := ""
 var close_call_armed := false
 
 func _ready() -> void:
+	BoardView.flipped = false   # the tutorial is always in default orientation
+	$BoardArea/World/Board.refresh_colors()
 	steps = TUTORIAL_DATA.build_steps()
 	overlay.next_pressed.connect(_on_next_pressed)
 	overlay.action_pressed.connect(_on_action_pressed)
@@ -264,9 +266,82 @@ func _unhandled_input(event: InputEvent) -> void:
 				_toggle_pending_b_orientation()
 				get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_ESCAPE:
-			finished.emit()
+			_show_exit_confirm()
 			get_viewport().set_input_as_handled()
 
+var _exit_confirm: CanvasLayer = null
+
+func _show_exit_confirm() -> void:
+	if _exit_confirm != null:
+		return   # already open — Escape again does nothing
+
+	_exit_confirm = CanvasLayer.new()
+	_exit_confirm.layer = 80
+	add_child(_exit_confirm)
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.65)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.position = Vector2.ZERO
+	shade.size = get_viewport().get_visible_rect().size
+	_exit_confirm.add_child(shade)
+
+	var center := CenterContainer.new()
+	center.position = Vector2.ZERO
+	center.size = get_viewport().get_visible_rect().size
+	_exit_confirm.add_child(center)
+
+	var box := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.1, 0.1, 0.1, 0.98)
+	sb.set_corner_radius_all(12)
+	sb.set_content_margin_all(28)
+	box.add_theme_stylebox_override("panel", sb)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 18)
+
+	var title := Label.new()
+	title.text = "Leave the tutorial?"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 26)
+	col.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Your progress won't be saved."
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 14)
+	col.add_child(hint)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var stay := Button.new()
+	stay.text = "Keep Going"
+	stay.custom_minimum_size = Vector2(160, 46)
+	stay.pressed.connect(_close_exit_confirm)
+	row.add_child(stay)
+
+	var leave := Button.new()
+	leave.text = "Leave"
+	leave.custom_minimum_size = Vector2(160, 46)
+	leave.pressed.connect(func():
+		_close_exit_confirm()
+		finished.emit()
+	)
+	row.add_child(leave)
+
+	col.add_child(row)
+	box.add_child(col)
+	center.add_child(box)
+	stay.grab_focus()
+
+func _close_exit_confirm() -> void:
+	if _exit_confirm != null:
+		_exit_confirm.queue_free()
+		_exit_confirm = null
+		
 # -----------------------------------------------------------------------------
 # Board layout and input
 # -----------------------------------------------------------------------------

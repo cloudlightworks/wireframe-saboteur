@@ -22,12 +22,13 @@ const STICKERS := {
 	"uh_oh":             {"label": "uh oh…",                     "file": "uh_oh.png",            "cat": "taunt"},
 	"oof":               {"label": "oof",                        "file": "oof.png",              "cat": "taunt"},
 	"exclaim_question":  {"label": "!?",                         "file": "exclaim_question.png", "cat": "taunt"},
+	"chartsville":       {"label": "chartsville over here",   "file": "chartsville_over_here.png", "cat": "taunt"},
 }
 
 # Order the picker shows them in. Ids not listed here are appended after.
 const ORDER := [
 	"stuck_general", "jim", "suspicious_one", "sure_piece", "careful_now",
-	"sabotaged", "too_slow", "boom", "your_move", "uh_oh", "oof", "exclaim_question",
+	"sabotaged", "too_slow", "boom", "your_move", "uh_oh", "chartsville", "oof", "exclaim_question",
 ]
 
 static func is_valid(id: String) -> bool:

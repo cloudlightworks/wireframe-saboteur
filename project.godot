@@ -26,6 +26,9 @@ TextureManager="*uid://c01u5xumj6y1g"
 ChatManager="*uid://ds2mj8n06qaj4"
 GameSetup="*uid://c5ism2xp65gvl"
 BoardView="*uid://ntv4qts55kj0"
+PlayerIdentity="*uid://c6h5glidtesmt"
+ReplayRecorder="*uid://bollg23fy2r0s"
+Transcript="*uid://b7h057r7ua5md"
 
 [display]
 

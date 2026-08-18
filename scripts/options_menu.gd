@@ -134,23 +134,40 @@ func _build_main_view() -> Control:
 	))
 	
 	col.add_child(_spacer(28))
-	if show_player_colors:
-		col.add_child(_title("Player Colors"))
-		col.add_child(_spacer(10))
-		col.add_child(_rule_line(RuleSettings.COLOR_HEX[RuleSettings.side_two_color]))
-		col.add_child(_spacer(5))
-		col.add_child(_rule_line(RuleSettings.COLOR_HEX[RuleSettings.side_one_color]))
-		col.add_child(_spacer(28))
-		col.add_child(_make_color_row())
+	col.add_child(_section_label("REPLAYS"))
+	col.add_child(_spacer(10))
+	col.add_child(_make_toggle_row(
+		"Record matches", SettingsManager.record_matches,
+		func(on):
+			SettingsManager.set_record_matches_pref(on)
+	))
+	col.add_child(_spacer(10))
+	var replay_hint := Label.new()
+	replay_hint.text = "Both players must record a game to produce a verifiable indenture for rankings."
+	replay_hint.add_theme_font_size_override("font_size", 14)
+	replay_hint.add_theme_color_override("font_color", MUTED)
+	replay_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(replay_hint)
 
-	if show_textures:
-		col.add_child(_title("Themes"))
+	col.add_child(_spacer(28))
+	if show_player_colors or show_textures:
+		var section_title := "Themes"
+		if show_player_colors and show_textures:
+			section_title = "Player Colors & Themes"
+		elif show_player_colors:
+			section_title = "Player Colors"
+		col.add_child(_title(section_title))
 		col.add_child(_spacer(10))
 		col.add_child(_rule_line(RuleSettings.COLOR_HEX[RuleSettings.side_two_color]))
 		col.add_child(_spacer(5))
 		col.add_child(_rule_line(RuleSettings.COLOR_HEX[RuleSettings.side_one_color]))
 		col.add_child(_spacer(28))
-		col.add_child(_make_texture_row())
+		if show_player_colors:
+			col.add_child(_make_color_row())
+		if show_textures:
+			if show_player_colors:
+				col.add_child(_spacer(20))
+			col.add_child(_make_texture_row())
 		col.add_child(_spacer(28))
 
 	col.add_child(_spacer(38))
@@ -332,10 +349,8 @@ func _make_color_row() -> Control:
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(left)
 
-	var one := _color_name(_side_color(1))
-	var two := _color_name(_side_color(2))
 	var desc := Label.new()
-	desc.text = "Choose from alternative player colors." % [one, two]
+	desc.text = "Choose from alternative player colors."
 	desc.add_theme_font_size_override("font_size", 16)
 	desc.add_theme_color_override("font_color", BODY)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -380,11 +395,18 @@ func _make_texture_row() -> Control:
 	row.add_child(left)
 
 	var desc := Label.new()
-	desc.text = "Change the look of the board and pieces. Current theme: %s" % TextureManager.label_for(TextureManager.active_id())
+	desc.text = "Change the look of the board and pieces."
 	desc.add_theme_font_size_override("font_size", 16)
 	desc.add_theme_color_override("font_color", BODY)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	left.add_child(desc)
+
+	var current := Label.new()
+	current.text = "Current theme: %s" % TextureManager.label_for(TextureManager.active_id())
+	current.add_theme_font_size_override("font_size", 16)
+	current.add_theme_color_override("font_color", MUTED)
+	current.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	left.add_child(current)
 
 	var choose := Button.new()
 	choose.text = "choose"

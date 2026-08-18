@@ -11,6 +11,11 @@ var game_history: Array[Dictionary] = []
 # choke point every capture path goes through. Consumed and cleared by the
 # controller at end of turn; no rule reads it.
 var capture_cells_this_turn: Array = []   # each entry: Array[Vector2i]
+# Presentation only: cells where an ITYD piece returned to the board this turn.
+# Recorded at the apply choke point so all four call paths (local, CPU,
+# host-validate, client-apply) are covered. Consumed and cleared by the
+# controller at end of turn; no rule reads it.
+var ityd_cells_this_turn: Array = []   # each entry: Array[Vector2i]
 
 var current_player: Piece.Owner = Piece.Owner.BLUE
 var turn_number: int = 1
@@ -65,6 +70,7 @@ func draw_card(player: Piece.Owner) -> Card:
 		deck.shuffle()
 	var card: Card = deck.pop_front()
 	hands[player].append(card)
+	ReplayRecorder.record({"t": "draw", "by": int(player), "card": card.uid}, true)
 	print(">>> DREW ", player, " hand=", hands[player].size(), " deck=", deck.size())
 	return card
 
@@ -73,6 +79,7 @@ func discard_card(player: Piece.Owner, card: Card) -> bool:
 		return false
 	hands[player].erase(card)
 	discard_pile.append(card)
+	ReplayRecorder.record({"t": "disc", "by": int(player), "card": card.uid, "to": "pile"}, true)
 	return true
 
 func resolve_capture_draws(result: RulesEngine.CaptureResult, attacker_owner: Piece.Owner, defender_owner: Piece.Owner) -> void:
@@ -132,6 +139,13 @@ func declare_saboteur(declaring_player: Piece.Owner, type_card: Card, chart_card
 	if not RulesEngine.can_declare_saboteur(declaring_player, self):
 		return false
 	target.apply_saboteur_conversion(declaring_player)
+	ReplayRecorder.record({
+		"t": "sab",
+		"by": int(declaring_player),
+		"target": target.uid,
+		"declared": int(chosen_type),
+		"cards": [type_card.uid, chart_card.uid],
+	})
 	discard_card(declaring_player, type_card)
 	discard_card(declaring_player, chart_card)
 	return true
@@ -141,11 +155,13 @@ func apply_double_agent(playing_player: Piece.Owner) -> bool:
 	for piece in pieces.values():
 		if piece.owner == opponent and piece.has_status("saboteur"):
 			piece.reverse_saboteur_conversion(playing_player)
+			ReplayRecorder.record({"t": "double_agent", "by": int(playing_player), "target": piece.uid})
 			return true
 	return false
 	
 func apply_he_seemed_suspicious() -> void:
 	can_capture_own_piece = true
+	ReplayRecorder.record({"t": "he_seemed", "by": int(current_player)})
 	
 func apply_just_this_once(playing_player: Piece.Owner, destination: Vector2i) -> bool:
 	if objective_has_moved.get(playing_player, false):
@@ -161,6 +177,7 @@ func apply_just_this_once(playing_player: Piece.Owner, destination: Vector2i) ->
 		return false
 	objective.cells[0] = destination
 	objective_has_moved[playing_player] = true
+	ReplayRecorder.record({"t": "jto", "by": int(playing_player), "dest": ReplayRecorder.cell_to_array(destination)})
 	return true
 
 func _is_legal_objective_move(from: Vector2i, to: Vector2i, player: Piece.Owner) -> bool:
@@ -196,6 +213,7 @@ func apply_get_move_on(piece_type: Piece.Type) -> void:
 	get_move_on_type = piece_type
 	get_move_on_claimant_uid = -1
 	get_move_on_bonus_used = false
+	ReplayRecorder.record({"t": "gamo", "by": int(current_player), "ptype": int(piece_type)})
 
 # Returns true if this piece is entitled to a free GaMO move right now.
 # Either it already claimed the bonus, or it's the first matching-type piece to move.
@@ -218,6 +236,7 @@ func spend_gamo_move(piece: Piece) -> void:
 		
 func apply_close_call(piece_type: Piece.Type) -> void:
 	close_call_active[piece_type] = true
+	ReplayRecorder.record({"t": "close_call", "by": int(current_player), "ptype": int(piece_type)})
 
 func resolve_capture_with_effects(attacker: Piece, defender: Piece, consume: bool = true) -> RulesEngine.CaptureResult:
 	var result := RulesEngine.resolve_capture(attacker, defender)
@@ -245,7 +264,7 @@ func resolve_capture_with_effects(attacker: Piece, defender: Piece, consume: boo
 
 func apply_im_on_to_you() -> void:
 	general_can_capture_saboteur = true
-	print(">>> I'm On To You applied, flag now: ", general_can_capture_saboteur)
+	ReplayRecorder.record({"t": "im_on_to_you", "by": int(current_player)})
 	
 func apply_one_man_army(playing_player: Piece.Owner, type_card: Card, chosen_type: Piece.Type) -> bool:
 	if not hands[playing_player].has(type_card):
@@ -255,7 +274,8 @@ func apply_one_man_army(playing_player: Piece.Owner, type_card: Card, chosen_typ
 	discard_card(playing_player, type_card)
 	one_man_army_type = chosen_type
 	one_man_army_active = true
-	return true	
+	ReplayRecorder.record({"t": "oma", "by": int(playing_player), "ptype": int(chosen_type), "cards": [type_card.uid]})
+	return true
 	
 func capture_piece(uid: int) -> void:
 	if pieces.has(uid):
@@ -266,6 +286,12 @@ func capture_piece(uid: int) -> void:
 		piece.status_effects.clear()
 		if not piece.cells.is_empty():
 			capture_cells_this_turn.append(piece.cells.duplicate())
+			ReplayRecorder.record({
+				"t": "cap",
+				"p": piece.uid,
+				"owner": int(piece.owner),
+				"cells": ReplayRecorder.cells_to_array(piece.cells),
+			}, true)
 		captured_pieces[piece.owner].append(piece)
 		pieces.erase(uid)
 
@@ -273,9 +299,16 @@ func can_move_now() -> bool:
 	return moves_remaining > 0
 
 func piece_can_move(piece: Piece) -> bool:
+	# The GaMO bonus is its own entitlement. piece_has_gamo_move() already
+	# restricts it to the claimant, so it must not also satisfy
+	# can_move_another_piece(), which governs the general move budget and the
+	# Blitzkrieg different-piece restriction. Requiring both made the GaMO
+	# second move unreachable whenever blitzkrieg_old_different_piece was off.
+	if piece_has_gamo_move(piece):
+		return true
 	if not can_move_another_piece(piece.uid):
 		return false
-	return moves_remaining > 0 or piece_has_gamo_move(piece)
+	return moves_remaining > 0
 
 func spend_move() -> void:
 	moves_remaining -= 1
@@ -299,15 +332,18 @@ func can_move_another_piece(uid: int) -> bool:
 	return false
 
 func apply_blitzkrieg() -> void:
-	blitzkrieg_active = true      # kept for the old-BK House Rule
-	moves_remaining += 1          # default BK: +1 general move
+	blitzkrieg_active = true
+	moves_remaining += 1
+	ReplayRecorder.record({"t": "blitzkrieg", "by": int(current_player)})
 
 func apply_just_in_case(player: Piece.Owner) -> void:
 	bonus_draw_on_next_capture[player] = 2
+	ReplayRecorder.record({"t": "just_in_case", "by": int(player)})
 
 func apply_ineffective_leadership(playing_player: Piece.Owner) -> void:
 	var opponent := Piece.Owner.RED if playing_player == Piece.Owner.BLUE else Piece.Owner.BLUE
 	general_frozen_remaining[opponent] = 3
+	ReplayRecorder.record({"t": "ineffective_leadership", "by": int(playing_player)})
 
 func is_general_frozen(owner: Piece.Owner) -> bool:
 	return general_frozen_remaining.get(owner, 0) > 0
@@ -333,6 +369,14 @@ func apply_i_thought_you_were_dead(playing_player: Piece.Owner, piece_uid: int, 
 	target.orientation = orientation
 	captured_pieces[playing_player].erase(target)
 	pieces[target.uid] = target
+	ityd_cells_this_turn.append(new_cells.duplicate())
+	ReplayRecorder.record({
+		"t": "ityd",
+		"by": int(playing_player),
+		"p": target.uid,
+		"cells": ReplayRecorder.cells_to_array(new_cells),
+		"orient": int(orientation),
+	})
 	return true
 		
 func _find_piece_by_designation(designation: String, owner: Piece.Owner) -> Piece:
@@ -350,6 +394,9 @@ func _find_piece_by_designation(designation: String, owner: Piece.Owner) -> Piec
 	return null
 	
 func end_turn() -> void:
+	# Recorded first: current_player flips below, so anywhere later would name
+	# the incoming player rather than the one whose turn ended.
+	ReplayRecorder.record({"t": "end", "by": int(current_player), "turn": turn_number})
 	if general_frozen_remaining.has(current_player):
 		general_frozen_remaining[current_player] -= 1
 		if general_frozen_remaining[current_player] <= 0:

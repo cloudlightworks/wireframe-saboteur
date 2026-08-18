@@ -13,6 +13,27 @@ var objective_saboteurs_only: bool = true
 
 var ityd_deployment_zone_only: bool = true
 
+# Single source of truth for which properties are rule choices. The replay
+# header snapshots these, because house rules change legality — a replay under
+# different toggles diverges silently. Adding a rule here means the recorder
+# picks it up without being edited.
+const RULE_KEYS := [
+	"close_call_shields_all_simultaneous_mutuals",
+	"c_captures_resolve_independently",
+	"general_can_capture_cycle_pieces",
+	"mutual_destruction_both_draw",
+	"blitzkrieg_old_different_piece",
+	"require_move_to_end_turn",
+	"objective_saboteurs_only",
+	"ityd_deployment_zone_only",
+]
+
+func rules_snapshot() -> Dictionary:
+	var out := {}
+	for k in RULE_KEYS:
+		out[k] = get(k)
+	return out
+
 # ---- Player colors ----
 # Six selectable side colors: red, blue, green, yellow, magenta, lavender.
 var side_one_color: String = "blue"

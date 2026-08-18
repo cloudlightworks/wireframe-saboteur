@@ -18,6 +18,11 @@ var disabled_tracks: Array = []
 # the folder name of a pack the player imported. Validated on load.
 var texture_pack: String = "default"
 
+# ---- Replays ----
+# Opt-in. When on, each completed match writes a .wfs record to user://replays/.
+# Recording is local and per-player: each side keeps its own copy of a match.
+var record_matches: bool = false
+
 signal texture_pack_changed(id: String)
 
 
@@ -74,6 +79,7 @@ func _save() -> void:
 	cfg.set_value("audio", "soundtrack_variant", soundtrack_variant)
 	cfg.set_value("audio", "disabled_tracks", disabled_tracks)
 	cfg.set_value("display", "texture_pack", texture_pack)
+	cfg.set_value("replays", "record_matches", record_matches)
 	cfg.save(SAVE_PATH)
 
 func _load() -> void:
@@ -87,7 +93,12 @@ func _load() -> void:
 	soundtrack_variant = cfg.get_value("audio", "soundtrack_variant", soundtrack_variant)
 	disabled_tracks = cfg.get_value("audio", "disabled_tracks", disabled_tracks)
 	texture_pack = cfg.get_value("display", "texture_pack", "default")
+	record_matches = cfg.get_value("replays", "record_matches", false)
 
+func set_record_matches_pref(enabled: bool) -> void:
+	record_matches = enabled
+	_save()
+	
 func set_texture_pack_pref(id: String) -> void:
 	var chosen: String = id
 	var tm: Node = get_node_or_null("/root/TextureManager")

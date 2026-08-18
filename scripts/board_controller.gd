@@ -127,6 +127,7 @@ func _begin_networked_game_from_data(merged_pieces: Array) -> void:
 	if not NetworkManager.is_host():
 		game_state.deck.clear()
 		game_state.deck_is_authoritative = false
+		ReplayRecorder.start_match(game_state, "online", NetworkManager.my_side())
 	in_croce = false
 	piece_layer.visible = true
 	_reveal_all_pieces()
@@ -136,6 +137,7 @@ func _begin_networked_game_from_data(merged_pieces: Array) -> void:
 
 func _ready() -> void:
 	randomize()
+	BoardView.flipped = false   # view flip is per-match; never inherited from the last one
 	print("board_controller _ready called")
 	MusicManager.play_track(MusicManager.Track.CROCE)
 	game_state = GameState.new()
@@ -179,7 +181,6 @@ func _ready() -> void:
 			return
 	_finish_ready()
 	_cpu_from_menu()
-	_debug_validate_openings()
 
 func _card_in_hand(side: Piece.Owner, uid: int):
 	for c in game_state.hands[side]:
@@ -614,6 +615,8 @@ func _show_move_ripple(piece: Piece) -> void:
 	# below, so a hidden turn's captures do not leak into the next ripple.
 	var capture_cells: Array = game_state.capture_cells_this_turn.duplicate()
 	game_state.capture_cells_this_turn.clear()
+	var ityd_cells: Array = game_state.ityd_cells_this_turn.duplicate()
+	game_state.ityd_cells_this_turn.clear()
 
 	# Only for the player about to act. In hotseat there's one screen, so show.
 	if NetworkManager.is_networked() and game_state.current_player != NetworkManager.my_side():
@@ -635,6 +638,20 @@ func _show_move_ripple(piece: Piece) -> void:
 		drop.start_delay = delay
 		add_child(drop)
 		_capture_ripples.append(drop)
+		delay += randf_range(0.12, 0.34)
+
+	# A returned piece is an arrival rather than a death, so it gets a full
+	# ripple instead of a raindrop — it should read as more significant than
+	# a capture splash.
+	for cells in ityd_cells:
+		if cells.is_empty():
+			continue
+		var arrival := RippleMarker.new()
+		arrival.position = _cells_center(cells)
+		arrival.color = drop_color
+		arrival.start_delay = delay
+		add_child(arrival)
+		_capture_ripples.append(arrival)
 		delay += randf_range(0.12, 0.34)
 
 	# Then the mover ripple, if the piece is still on the board.
@@ -670,9 +687,20 @@ func _resolve_saboteur(side: Piece.Owner, type_uid: int, chart_uid: int, chosen_
 	var chart_card = _card_in_hand(side, chart_uid) if from_hand else _card_by_uid(chart_uid)
 	if type_card == null or chart_card == null:
 		return false
-	if not game_state.pieces.has(target_uid):
+	# The host resolves the target from the card designation, the same way
+	# begin_saboteur_targeting() does locally and the same way declare_saboteur()
+	# will. The client-supplied target_uid is an assertion, not an instruction:
+	# if it disagrees with the canonical piece, reject rather than apply.
+	var designation := RulesEngine.designation_from_cards(type_card, chart_card, chosen_type)
+	if designation == "":
 		return false
-	saboteur_target_piece = game_state.pieces[target_uid]
+	var opponent: Piece.Owner = Piece.Owner.RED if side == Piece.Owner.BLUE else Piece.Owner.BLUE
+	var target := game_state._find_piece_by_designation(designation, opponent)
+	if target == null:
+		return false
+	if target_uid != target.uid:
+		return false
+	saboteur_target_piece = target
 	return game_state.declare_saboteur(side, type_card, chart_card, chosen_type)
 	
 # ---------------- turn countdown (host owns the clock) ----------------
@@ -1660,6 +1688,7 @@ func _finish_croce() -> void:
 		ui_layer.queue_free()
 	_teardown_croce_ui()
 	game_state.initialize_deck()
+	ReplayRecorder.start_match(game_state, "cpu" if cpu != null else "hotseat", Piece.Owner.BLUE)
 	in_croce = false
 	piece_layer.visible = true
 	_reveal_all_pieces()
@@ -1811,6 +1840,7 @@ func _confirm_saboteur() -> void:
 		hand_panel.show_status("Saboteur declaration failed.")
 
 func begin_ityd(card) -> void:
+	print(">>> begin_ityd called, required_type=", card.effect_piece_type)
 	ityd_card = card
 	ityd_required_type = card.effect_piece_type
 	ityd_selecting = true
@@ -2236,6 +2266,16 @@ func _execute_move(destination: Vector2i) -> void:
 		new_cells = _b_new_cells_for_dest(selected_piece, destination)
 	else:
 		new_cells = _cells_at(selected_piece, destination)
+	# Recorded here rather than in _apply_movement, which runs after capture
+	# resolution and is skipped entirely when the mover dies in a mutual
+	# destroy — so capturing moves came out inverted and suicidal ones vanished.
+	ReplayRecorder.record({
+		"t": "move",
+		"by": int(selected_piece.owner),
+		"p": selected_piece.uid,
+		"from": ReplayRecorder.cells_to_array(selected_piece.cells),
+		"to": ReplayRecorder.cells_to_array(new_cells),
+	})
 	# Collect all overlapping opponent pieces
 	var targets: Array = []
 	for piece in game_state.pieces.values():
@@ -2444,6 +2484,7 @@ func _check_win() -> void:
 		_show_win_screen(winner)
 
 func _show_win_screen(winner: Piece.Owner) -> void:
+	ReplayRecorder.finish_match(int(winner), "objective", game_state.turn_number)
 	MusicManager.play_track(MusicManager.Track.MENU, 0.0)
 	SfxManager.play("victory")
 	var is_blue := winner == Piece.Owner.BLUE
@@ -2938,6 +2979,7 @@ func _debug_skip_croce() -> void:
 	_teardown_croce_ui()
 	piece_layer.visible = true
 	game_state.initialize_deck()
+	ReplayRecorder.start_match(game_state, "debug", Piece.Owner.BLUE)
 	in_croce = false
 	_build_turn_ui()
 	print("DEBUG: Croce skipped - game begins.")

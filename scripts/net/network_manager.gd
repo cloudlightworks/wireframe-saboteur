@@ -167,6 +167,7 @@ signal turn_timer_pause_changed(paused: bool)
 func broadcast_turn_timer_start(seconds: float) -> void:
 	turn_timer_started.emit(seconds)
 
+@rpc("authority", "call_local", "reliable")
 func broadcast_turn_timer_cancel() -> void:
 	turn_timer_cancelled.emit()
 	
@@ -472,7 +473,6 @@ func sync_player_names(blue_name: String, red_name: String) -> void:
 	player_names[Piece.Owner.BLUE] = blue_name
 	player_names[Piece.Owner.RED] = red_name
 	player_names_changed.emit()
-	print("NAMES: blue=", blue_name, " red=", red_name)
 
 signal deploy_mirror_changed(visible: bool, pos: Vector2)
 
