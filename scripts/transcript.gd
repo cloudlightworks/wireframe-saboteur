@@ -71,6 +71,12 @@ static func _piece_tuple(p) -> String:
 # Events are stored as JSON dictionaries in the .wfs for readability, but the
 # hash is computed over this fixed-order string form. Field order per event
 # type is pinned HERE, not by dictionary iteration order.
+# Draws are not hashed. Only the deck holder witnesses a draw; the client sees a hand
+# count change after the fact and cannot recover count, order, or drawer.
+# An event only one party can witness can never corroborate. The public
+# consequence of a draw is already covered: hands are private, and every
+# piece on the board is in the turn-boundary board hash.
+# "draw" is deliberately absent from EVENT_FIELDS.
 # ---------------------------------------------------------------------------
 
 # Every event type and the exact field order that enters the hash.
@@ -78,8 +84,6 @@ static func _piece_tuple(p) -> String:
 const EVENT_FIELDS := {
 	"move":         ["n", "by", "p", "from", "to"],
 	"cap":          ["n", "owner", "p", "cells"],
-	"draw":         ["n", "by"],            # card uid is PRIVATE — the draw is public, the card is not
-	"disc":         ["n", "by", "card"],    # discards are face-up: card is public
 	"end":          ["n", "by", "turn", "bh"],
 	"sab":          ["n", "by", "target", "declared", "cards"],
 	"ityd":         ["n", "by", "p", "cells", "orient"],

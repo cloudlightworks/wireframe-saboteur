@@ -12,6 +12,10 @@ class_name MenuRoot
 
 const GAME_SCENE := "res://scenes/main.tscn"
 const TUTORIAL_SCENE := preload("res://scenes/tutorial.tscn")
+const REPLAY_SCENE := "res://scenes/replay_viewer.tscn"
+
+const JOIN_ADDRESS_PATH := "user://last_join_address.txt"
+const PLAYER_NAME_PATH := "user://player_name.txt"
 
 var _current: Control = null
 
@@ -125,6 +129,8 @@ func _on_option_selected(id: String) -> void:
 			_show_house_rules()
 		"options":
 			_show_options()
+		"replay":
+			_show_replay()
 		"make_your_own":
 			_show_make_your_own()
 		"credits":
@@ -136,9 +142,8 @@ func _on_option_selected(id: String) -> void:
 			await get_tree().create_timer(2.0).timeout
 			get_tree().quit()
 
-
-const JOIN_ADDRESS_PATH := "user://last_join_address.txt"
-const PLAYER_NAME_PATH := "user://player_name.txt"
+func _show_replay() -> void:
+	get_tree().change_scene_to_file(REPLAY_SCENE)
 
 func _show_join_prompt() -> void:
 	var layer := CanvasLayer.new()

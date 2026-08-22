@@ -127,7 +127,7 @@ func _begin_networked_game_from_data(merged_pieces: Array) -> void:
 	if not NetworkManager.is_host():
 		game_state.deck.clear()
 		game_state.deck_is_authoritative = false
-		ReplayRecorder.start_match(game_state, "online", NetworkManager.my_side())
+	ReplayRecorder.start_match(game_state, "online", NetworkManager.my_side())
 	in_croce = false
 	piece_layer.visible = true
 	_reveal_all_pieces()
@@ -1206,7 +1206,20 @@ func _on_hand_state_received(my_hand_uids: Array, opponent_count: int, deck_coun
 	for uid in my_hand_uids:
 		if _card_lookup.has(uid):
 			rebuilt.append(_card_lookup[uid])
+	var _before: Array = []
+	for c in game_state.hands[NetworkManager.my_side()]:
+		_before.append(c.uid)
 	game_state.hands[NetworkManager.my_side()] = rebuilt
+	# The client's draws are suppressed by deck_is_authoritative, so its own hand
+	# is recorded here instead — from the authoritative hand state, which is the
+	# only place the client legitimately learns what it holds.
+	if not NetworkManager.is_host():
+		for uid in my_hand_uids:
+			if not _before.has(uid):
+				ReplayRecorder.record({"t": "draw", "by": int(NetworkManager.my_side()), "card": int(uid)}, true)
+		for uid in _before:
+			if not my_hand_uids.has(uid):
+				ReplayRecorder.record({"t": "disc", "by": int(NetworkManager.my_side()), "card": int(uid), "to": "pile"}, true)
 	NetworkManager.opponent_hand_count = opponent_count
 	if hand_panel:
 		hand_panel.refresh()

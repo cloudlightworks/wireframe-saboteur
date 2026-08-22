@@ -35,9 +35,10 @@ const OPTIONS := [
 	["how_to_play", "how to play"],
 	["house_rules", "house rules"],
 	["options", "options"],
+	["replay", "replay"],
 	["make_your_own", "make your own board"],
 	["credits", "credits"],
-	["story", "story"],
+	["story", "lore"],
 	["quit", "quit"],
 ]
 

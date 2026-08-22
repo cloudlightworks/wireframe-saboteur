@@ -14,7 +14,7 @@ extends Node
 # Nothing here is authoritative. No rule reads it, and failure to record must
 # never affect play — every entry point no-ops when inactive.
 
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 3
 const DIR := "user://replays/"
 
 var active: bool = false
@@ -23,6 +23,10 @@ var _header: Dictionary = {}
 var _events: Array = []
 var _seq: int = 0
 var _started_ms: int = 0
+# True only for genuine two-machine networked matches. Gates board hashing
+# and the transcript hash — one-machine matches have one witness, so a hash
+# proves nothing and is not computed.
+var hash_transcript: bool = false
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -30,6 +34,7 @@ var _started_ms: int = 0
 
 # Called once the deck is shuffled and both Croce placements are on the board.
 func start_match(game_state, mode: String, my_side: int) -> void:
+	print("REC start_match called: host=", NetworkManager.is_host(), " pref=", SettingsManager.record_matches)
 	active = false
 	_events.clear()
 	_seq = 0
@@ -46,6 +51,7 @@ func start_match(game_state, mode: String, my_side: int) -> void:
 	var vs_cpu: bool = gs_setup != null and gs_setup.vs_cpu
 	# Only a networked two-human match can ever support a verified result.
 	var rankable: bool = networked and not vs_cpu
+	hash_transcript = rankable
 
 	_header = {
 		"magic": "WFSREC",
@@ -65,9 +71,11 @@ func start_match(game_state, mode: String, my_side: int) -> void:
 			"home_rows_per_side": game_state.board.home_rows_per_side,
 		},
 		"deck": _deck_uids(game_state),
+		"deck_size": CardDatabase.build_full_deck().size(),
 		"croce": _croce(game_state),
 	}
 	active = true
+	print("REC start: host=", NetworkManager.is_host(), " active=", active, " mode=", mode)
 
 func finish_match(winner: int, reason: String, turns: int) -> void:
 	if not active:
@@ -188,12 +196,19 @@ func _side_key(side: int) -> String:
 # ---------------------------------------------------------------------------
 
 func _write() -> void:
+	print("REC write: host=", NetworkManager.is_host())
 	DirAccess.make_dir_recursive_absolute(DIR)
 	var doc := _header.duplicate(true)
 	doc["events"] = _events
+	if hash_transcript:
+		var th := Transcript.transcript_hash(_header, _events)
+		doc["transcript_hash"] = th
+		doc["signers"] = [{
+			"id": PlayerIdentity.player_id,
+			"role": "player",
+			"signature": PlayerIdentity.sign_text(th),
+		}]
 	var text := JSON.stringify(doc, "  ")
-	# Sign the body so a record is bound to the identity that produced it.
-	doc["signature"] = PlayerIdentity.sign_text(text)
 	doc["content_hash"] = text.sha256_text()
 	var final_text := JSON.stringify(doc, "  ")
 

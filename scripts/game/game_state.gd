@@ -70,7 +70,14 @@ func draw_card(player: Piece.Owner) -> Card:
 		deck.shuffle()
 	var card: Card = deck.pop_front()
 	hands[player].append(card)
-	ReplayRecorder.record({"t": "draw", "by": int(player), "card": card.uid}, true)
+	var _mine: bool = true
+	var _nm = get_node_or_null("/root/NetworkManager")
+	if _nm != null and _nm.is_networked():
+		_mine = int(player) == int(_nm.my_side())
+	if _mine:
+		ReplayRecorder.record({"t": "draw", "by": int(player), "card": card.uid}, true)
+	else:
+		ReplayRecorder.record({"t": "draw", "by": int(player)}, true)
 	print(">>> DREW ", player, " hand=", hands[player].size(), " deck=", deck.size())
 	return card
 
@@ -396,7 +403,10 @@ func _find_piece_by_designation(designation: String, owner: Piece.Owner) -> Piec
 func end_turn() -> void:
 	# Recorded first: current_player flips below, so anywhere later would name
 	# the incoming player rather than the one whose turn ended.
-	ReplayRecorder.record({"t": "end", "by": int(current_player), "turn": turn_number})
+	var end_event := {"t": "end", "by": int(current_player), "turn": turn_number}
+	if ReplayRecorder.hash_transcript:
+		end_event["bh"] = Transcript.board_hash(self)
+	ReplayRecorder.record(end_event)
 	if general_frozen_remaining.has(current_player):
 		general_frozen_remaining[current_player] -= 1
 		if general_frozen_remaining[current_player] <= 0:

@@ -23,6 +23,7 @@ const TICK_THICK := 2.0
 const PIECE_DIR := "res://assets/sprites/pieces/"
 const CARD_DIR := "res://assets/sprites/cards/"
 
+
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_build()
@@ -126,6 +127,14 @@ func _build() -> void:
 	col.add_child(_body("In an online match you can talk to your opponent \u2014 and needle them. Press T to open the chat box; it stays where you put it until you close it with [ x ]."))
 	col.add_child(_spacer(14))
 	col.add_child(_chat_note())
+	col.add_child(_spacer(26))
+
+
+	# ---- Replays & match records ----
+	col.add_child(_section("Replays & Match Records"))
+	col.add_child(_body("Completed matches can be saved to your computer and watched again, one turn at a time. The section below explains how."))
+	col.add_child(_spacer(14))
+	col.add_child(_replay_note())
 	col.add_child(_spacer(40))
 
 	# ---- Back ----
@@ -343,6 +352,155 @@ func _chat_row(tag: String, desc: String) -> Control:
 
 # A row of blue-side piece thumbnails with captions. Uses real in-game sprites;
 # any that fail to load are simply skipped so a missing asset never crashes.
+
+func _replay_note() -> Control:
+	var frame := PanelContainer.new()
+	frame.custom_minimum_size = Vector2(700, 0)
+	var fsb := StyleBoxFlat.new()
+	fsb.bg_color = Color("#faf8f3")
+	fsb.border_color = Color("#d8d2c6")
+	fsb.set_border_width_all(1)
+	fsb.set_corner_radius_all(8)
+	fsb.content_margin_left = 24
+	fsb.content_margin_right = 24
+	fsb.content_margin_top = 22
+	fsb.content_margin_bottom = 24
+	frame.add_theme_stylebox_override("panel", fsb)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 0)
+	frame.add_child(col)
+
+	var heading := _section("Replays & Match Records")
+	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(heading)
+	col.add_child(_spacer(14))
+
+	var diagram := Control.new()
+	diagram.custom_minimum_size = Vector2(652, 196)
+	diagram.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	diagram.draw.connect(_draw_replay_diagram.bind(diagram))
+	col.add_child(diagram)
+	col.add_child(_spacer(20))
+
+	col.add_child(_replay_step("1", "LOAD A RECORD", "One .wfs file is enough to replay an entire match. Every move, capture, and card play is in it from start to finish, so a single record plays the whole game on its own."))
+	col.add_child(_spacer(12))
+	col.add_child(_replay_step("2", "ADD THE OTHER PLAYER'S RECORD", "In an online game each player records independently on their own machine. Load both copies of the same match and the viewer checks whether the two accounts agree \u2014 two halves of one page that should fit only each other."))
+	col.add_child(_spacer(12))
+	col.add_child(_replay_step("3", "STEP THROUGH THE MATCH", "The arrows move one turn at a time, backward or forward. Nothing plays on its own \u2014 you set the pace. Each side's hand is shown beside its own half of the board, so you can see what was held and when."))
+	col.add_child(_spacer(12))
+	col.add_child(_replay_step("4", "CHECK THE STATUS", "The mark on the left reports what you have loaded: a matched pair, a single half, two copies of the same side by mistake, or \u2014 if two records genuinely disagree \u2014 the first turn where they part ways."))
+	col.add_child(_spacer(20))
+	col.add_child(_body("Recording is off until you switch it on under Options \u2192 Replays. Records are written to your own computer, one file per match, and nothing is shared or uploaded unless you send a file yourself."))
+
+	return frame
+
+# A schematic of the replay screen, drawn rather than screenshotted so it can
+# never fall out of step with the real thing. Side colours come from
+# RuleSettings, so it follows whatever the player has chosen.
+func _draw_replay_diagram(c: Control) -> void:
+	var font := ThemeDB.fallback_font
+	var blue: Color = RuleSettings.COLOR_HEX[RuleSettings.side_one_color]
+	var red: Color = RuleSettings.COLOR_HEX[RuleSettings.side_two_color]
+	var line := Color("#c8c2b6")
+
+	var bx: float = 158.0
+	var by: float = 22.0
+	var bw: float = 300.0
+	var bh: float = 132.0
+
+	c.draw_rect(Rect2(bx, by, bw, bh * 0.5), Color(blue, 0.10))
+	c.draw_rect(Rect2(bx, by + bh * 0.5, bw, bh * 0.5), Color(red, 0.10))
+	for i in range(1, 10):
+		var gx: float = bx + bw * float(i) / 10.0
+		c.draw_line(Vector2(gx, by), Vector2(gx, by + bh), Color(line, 0.6), 1.0)
+	for j in range(1, 8):
+		var gy: float = by + bh * float(j) / 8.0
+		c.draw_line(Vector2(bx, gy), Vector2(bx + bw, gy), Color(line, 0.6), 1.0)
+	c.draw_line(Vector2(bx, by + bh * 0.5), Vector2(bx + bw, by + bh * 0.5), INK, 1.5)
+	c.draw_rect(Rect2(bx, by, bw, bh), line, false, 1.0)
+
+	var cw: float = bw / 10.0
+	var ch: float = bh / 8.0
+	for spot in [[1, 1], [3, 1], [4, 2], [7, 0]]:
+		c.draw_rect(Rect2(bx + spot[0] * cw + 2, by + spot[1] * ch + 2, cw - 4, ch - 4), Color(blue, 0.35))
+	for spot2 in [[2, 6], [5, 7], [6, 5], [8, 6]]:
+		c.draw_rect(Rect2(bx + spot2[0] * cw + 2, by + spot2[1] * ch + 2, cw - 4, ch - 4), Color(red, 0.35))
+
+	c.draw_string(font, Vector2(10, by + 12), "TURN 11", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, INK)
+	c.draw_rect(Rect2(10, by + 22, 100, 2), red)
+	c.draw_rect(Rect2(10, by + 26, 100, 2), blue)
+	c.draw_string(font, Vector2(10, by + 50), "host", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, blue)
+	c.draw_string(font, Vector2(10, by + 66), "client", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, red)
+	c.draw_rect(Rect2(10, by + 82, 32, 32), PAPER)
+	c.draw_rect(Rect2(10, by + 82, 32, 32), INK, false, 1.5)
+	c.draw_string(font, Vector2(50, by + 103), "fit", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MUTED)
+
+	var tx: float = bx + bw + 12.0
+	for k in range(3):
+		c.draw_rect(Rect2(tx, by + 4 + k * 17, 48, 13), PAPER)
+		c.draw_rect(Rect2(tx, by + 4 + k * 17, 48, 13), blue, false, 1.0)
+	for k2 in range(3):
+		c.draw_rect(Rect2(tx, by + bh * 0.5 + 8 + k2 * 17, 48, 13), PAPER)
+		c.draw_rect(Rect2(tx, by + bh * 0.5 + 8 + k2 * 17, 48, 13), red, false, 1.0)
+	c.draw_string(font, Vector2(tx, by - 4), "hands", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MUTED)
+
+	var ty: float = by + bh + 22.0
+	for m in range(4):
+		c.draw_rect(Rect2(10 + m * 26, ty, 20, 16), PAPER)
+		c.draw_rect(Rect2(10 + m * 26, ty, 20, 16), line, false, 1.0)
+	c.draw_line(Vector2(124, ty + 8), Vector2(bx + bw + 60, ty + 8), line, 1.5)
+	c.draw_line(Vector2(124, ty + 8), Vector2(240, ty + 8), red, 1.5)
+	c.draw_line(Vector2(240, ty + 2), Vector2(240, ty + 14), INK, 2.0)
+	c.draw_string(font, Vector2(10, ty - 4), "step", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MUTED)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		back.emit()
+		get_viewport().set_input_as_handled()
+
+func _replay_step(number: String, heading_text: String, body_text: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var badge := PanelContainer.new()
+	badge.custom_minimum_size = Vector2(34, 34)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color = Color("#f4f2ec")
+	bsb.border_color = INK
+	bsb.set_border_width_all(1)
+	bsb.set_corner_radius_all(17)
+	badge.add_theme_stylebox_override("panel", bsb)
+	var n := Label.new()
+	n.text = number
+	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	n.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	n.add_theme_font_size_override("font_size", 15)
+	n.add_theme_color_override("font_color", INK)
+	badge.add_child(n)
+	row.add_child(badge)
+
+	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	copy.add_theme_constant_override("separation", 3)
+	var h := Label.new()
+	h.text = heading_text
+	h.add_theme_font_size_override("font_size", 15)
+	h.add_theme_color_override("font_color", INK)
+	copy.add_child(h)
+	var b := Label.new()
+	b.text = body_text
+	b.add_theme_font_size_override("font_size", 15)
+	b.add_theme_color_override("font_color", Color("#33302b"))
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	copy.add_child(b)
+	row.add_child(copy)
+	return row
+
 func _piece_gallery() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 22)
@@ -539,14 +697,17 @@ func _back_option() -> Control:
 	row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 
 	var lb := Label.new(); lb.text = "["
+	lb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lb.add_theme_font_size_override("font_size", 28)
 	lb.add_theme_color_override("font_color", MUTED)
 	row.add_child(lb)
 	var mid := Label.new(); mid.text = "back to menu"
+	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mid.add_theme_font_size_override("font_size", 28)
 	mid.add_theme_color_override("font_color", INK)
 	row.add_child(mid)
 	var rb := Label.new(); rb.text = "]"
+	rb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rb.add_theme_font_size_override("font_size", 28)
 	rb.add_theme_color_override("font_color", MUTED)
 	row.add_child(rb)
